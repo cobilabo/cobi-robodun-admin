@@ -134,24 +134,30 @@ export function CatalogEditor() {
   };
 
   const addRow = () => {
-    const prefix =
-      catalogId === 'characters'
-        ? 'char_'
-        : catalogId === 'skills'
-          ? 'sk_'
-          : catalogId === 'effects'
-            ? 'fx_'
-            : catalogId === 'behaviors'
-              ? 'act_'
-              : catalogId === 'bosses'
-                ? 'boss_'
-                : catalogId === 'equipment'
-                  ? ''
-                  : '';
+    const prefixMap: Record<string, string> = {
+      characters: 'chr_',
+      enemies: 'enm_',
+      bosses: 'bos_',
+      skills: 'skl_',
+      equipment: 'eq_',
+      effects: 'fx_',
+      behaviors: 'beh_',
+      audio: 'aud_',
+    };
+    const prefix = prefixMap[catalogId] ?? '';
+    let maxN = 0;
+    for (const row of rows) {
+      const id = String(row.id ?? '');
+      if (!prefix || !id.startsWith(prefix)) continue;
+      const n = Number.parseInt(id.slice(prefix.length), 10);
+      if (!Number.isNaN(n)) maxN = Math.max(maxN, n);
+    }
+    const nextId = prefix ? `${prefix}${String(maxN + 1).padStart(2, '0')}` : `new_${Date.now().toString(36)}`;
     const template: Row = selected
       ? Object.fromEntries(
           Object.entries(selected).map(([k, v]) => {
-            if (k === 'id') return [k, `${prefix}new_${Date.now().toString(36)}`];
+            if (k === 'id') return [k, nextId];
+            if (k === 'code') return [k, `new_${Date.now().toString(36)}`];
             if (typeof v === 'string') return [k, ''];
             if (typeof v === 'number') return [k, 0];
             if (Array.isArray(v)) return [k, []];
@@ -159,7 +165,7 @@ export function CatalogEditor() {
             return [k, v];
           }),
         )
-      : { id: `${prefix}new`, nameJa: '新規' };
+      : { id: nextId, code: `new_${Date.now().toString(36)}`, nameJa: '新規' };
     setRows((prev) => [...prev, template]);
     setSelectedIdx(rows.length);
     setDirty(true);

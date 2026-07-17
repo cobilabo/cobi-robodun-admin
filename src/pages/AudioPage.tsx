@@ -6,6 +6,7 @@ import { collectAudioUploads } from '../lib/audioUpload';
 
 type Cue = {
   id: string;
+  code?: string;
   kind: 'bgm' | 'se' | 'ui' | 'ambience';
   file?: string;
   loop?: boolean;
@@ -16,22 +17,23 @@ type Cue = {
 type AudioDoc = { version: number; cues: Cue[] };
 
 const DEFAULT_CUES: Cue[] = [
-  { id: 'bgm_title', kind: 'bgm', loop: true, trigger: 'Title', noteJa: 'タイトル' },
-  { id: 'bgm_battle', kind: 'bgm', loop: true, trigger: 'Battle', noteJa: '戦闘' },
-  { id: 'bgm_boss', kind: 'bgm', loop: true, trigger: 'Boss', noteJa: 'ボス' },
+  { id: 'aud_01', code: 'bgm_title', kind: 'bgm', loop: true, trigger: 'Title', noteJa: 'タイトル' },
+  { id: 'aud_02', code: 'bgm_battle', kind: 'bgm', loop: true, trigger: 'Battle', noteJa: '戦闘' },
+  { id: 'aud_03', code: 'bgm_boss', kind: 'bgm', loop: true, trigger: 'Boss', noteJa: 'ボス' },
   {
-    id: 'bgm_gameover',
+    id: 'aud_04',
+    code: 'bgm_gameover',
     kind: 'bgm',
     loop: false,
     trigger: 'GameOver',
     noteJa: 'ゲームオーバー',
   },
-  { id: 'se_match', kind: 'se', trigger: 'MatchClear', noteJa: 'マッチ成立' },
-  { id: 'se_clear', kind: 'se', trigger: 'TileClear', noteJa: '消去' },
-  { id: 'se_hit', kind: 'se', trigger: 'Hit', noteJa: '着弾' },
-  { id: 'se_player_hit', kind: 'se', trigger: 'PlayerHit', noteJa: '被弾' },
-  { id: 'ui_ok', kind: 'ui', trigger: 'UiConfirm', noteJa: '決定' },
-  { id: 'ui_back', kind: 'ui', trigger: 'UiBack', noteJa: '戻る' },
+  { id: 'aud_05', code: 'se_match', kind: 'se', trigger: 'MatchClear', noteJa: 'マッチ成立' },
+  { id: 'aud_06', code: 'se_clear', kind: 'se', trigger: 'TileClear', noteJa: '消去' },
+  { id: 'aud_07', code: 'se_hit', kind: 'se', trigger: 'Hit', noteJa: '着弾' },
+  { id: 'aud_08', code: 'se_player_hit', kind: 'se', trigger: 'PlayerHit', noteJa: '被弾' },
+  { id: 'aud_09', code: 'ui_ok', kind: 'ui', trigger: 'UiConfirm', noteJa: '決定' },
+  { id: 'aud_10', code: 'ui_back', kind: 'ui', trigger: 'UiBack', noteJa: '戻る' },
 ];
 
 const UPLOAD_CONCURRENCY = 4;
@@ -208,7 +210,12 @@ export function AudioPage() {
                 selected === i ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--hover)]'
               }`}
             >
-              <div className="font-medium">{c.id}</div>
+              <div className="font-medium">
+                {c.id}
+                {c.code ? (
+                  <span className="ml-1 font-normal text-[var(--muted)]">({c.code})</span>
+                ) : null}
+              </div>
               <div className="text-[10px] text-[var(--muted)]">
                 {c.kind} / {c.trigger ?? '—'} {c.file ? '' : '・未割当'}
               </div>
@@ -220,11 +227,19 @@ export function AudioPage() {
           {cue && (
             <>
               <label className="block text-sm">
-                <span className="text-[var(--muted)]">id</span>
+                <span className="text-[var(--muted)]">id（管理番号）</span>
                 <input
                   className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[var(--input-bg)]"
                   value={cue.id}
                   onChange={(e) => updateCue({ id: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">code（通称）</span>
+                <input
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[var(--input-bg)]"
+                  value={cue.code ?? ''}
+                  onChange={(e) => updateCue({ code: e.target.value })}
                 />
               </label>
               <label className="block text-sm">

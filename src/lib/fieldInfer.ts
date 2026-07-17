@@ -68,5 +68,8 @@ export function fieldCaption(key: string): string {
 export function rowLabel(row: Record<string, unknown>): string {
   const id = String(row.id ?? '');
   const name = String(row.nameJa ?? row.name ?? row.descriptionJa ?? '');
-  return name ? `${id} — ${name}` : id || '(no id)';
+  const code = String(row.code ?? '').trim();
+  if (!id && !name) return '(no id)';
+  const mid = [name, code ? `(${code})` : ''].filter(Boolean).join(' ');
+  return mid ? `${id} — ${mid}` : id;
 }

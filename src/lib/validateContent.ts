@@ -33,17 +33,37 @@ export function validateCatalogBundle(
   const behaviorIds = new Set(behaviors.map((x) => String(x.id ?? '')));
 
   const checkDup = (rows: Record<string, unknown>[], catalog: string) => {
-    const seen = new Set<string>();
+    const seenId = new Set<string>();
+    const seenCode = new Set<string>();
     for (const row of rows) {
       const id = String(row.id ?? '');
       if (!id) {
         issues.push({ level: 'error', catalog, message: 'id が空の行があります' });
         continue;
       }
-      if (seen.has(id)) {
+      if (seenId.has(id)) {
         issues.push({ level: 'error', catalog, id, message: 'id が重複しています' });
       }
-      seen.add(id);
+      seenId.add(id);
+
+      const code = String(row.code ?? '').trim();
+      if (!code) {
+        issues.push({
+          level: 'warning',
+          catalog,
+          id,
+          message: 'code（通称）が未設定です',
+        });
+      } else if (seenCode.has(code)) {
+        issues.push({
+          level: 'error',
+          catalog,
+          id,
+          message: `code が重複しています: ${code}`,
+        });
+      } else {
+        seenCode.add(code);
+      }
     }
   };
 
@@ -54,6 +74,7 @@ export function validateCatalogBundle(
   checkDup(enemies, 'enemies');
   checkDup(bosses, 'bosses');
   checkDup(behaviors, 'behaviors');
+  checkDup(audioCues, 'audio');
 
   for (const c of characters) {
     const id = String(c.id ?? '');
