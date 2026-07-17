@@ -1,16 +1,21 @@
 @import 'tailwindcss';
 
 :root {
-  color-scheme: light;
-  --bg: #f4f0e8;
-  --panel: #fffdf8;
-  --ink: #1c1a17;
-  --muted: #6b6358;
-  --line: #d9d0c3;
-  --accent: #0f6e56;
-  --accent-soft: #d7f3ea;
-  --warn: #9a6700;
-  --danger: #b42318;
+  color-scheme: dark;
+  --bg: #0e1218;
+  --panel: #171d27;
+  --ink: #e8eef7;
+  --muted: #8b97a8;
+  --line: #2a3444;
+  --accent: #3dba8c;
+  --accent-soft: #163528;
+  --warn: #e0a54b;
+  --danger: #ef6b5c;
+  --input-bg: #10161f;
+  --hover: rgba(255, 255, 255, 0.06);
+  --checker-a: #1a2230;
+  --checker-b: #121820;
+  --bounds: #ff5cad;
   font-family: 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
 }
 
@@ -18,8 +23,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 10% -10%, #e7f2ec 0%, transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, #f3e7d5 0%, transparent 50%),
+    radial-gradient(1000px 520px at 8% -10%, #1a2a24 0%, transparent 55%),
+    radial-gradient(800px 480px at 100% 0%, #1a2030 0%, transparent 50%),
     var(--bg);
   color: var(--ink);
 }
@@ -33,4 +38,23 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  background: var(--input-bg);
+  border-color: var(--line);
+}
+
+.checkerboard {
+  background-color: var(--checker-a);
+  background-image:
+    linear-gradient(45deg, var(--checker-b) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--checker-b) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--checker-b) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--checker-b) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }

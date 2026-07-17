@@ -6,6 +6,7 @@ import {
   Music2,
   Wrench,
 } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const links = [
   { to: '/', label: 'ダッシュボード', icon: LayoutDashboard },
@@ -16,9 +17,11 @@ const links = [
 ];
 
 export function Layout() {
+  const { currentUser, logout, requiresAuth } = useAuth();
+
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-56 shrink-0 border-r border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur p-4 flex flex-col gap-6">
+    <div className="h-svh flex overflow-hidden">
+      <aside className="w-56 shrink-0 h-full overflow-y-auto border-r border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur p-4 flex flex-col gap-6">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
             cobi
@@ -35,7 +38,7 @@ export function Layout() {
                 `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
                   isActive
                     ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-                    : 'text-[var(--muted)] hover:bg-black/5 hover:text-[var(--ink)]'
+                    : 'text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--ink)]'
                 }`
               }
             >
@@ -44,11 +47,22 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <p className="mt-auto text-xs text-[var(--muted)] leading-relaxed">
-          GAME_ROOT の data / assets を直接編集します。保存後に Desktop で確認してください。
-        </p>
+        {requiresAuth && currentUser && (
+          <div className="mt-auto space-y-3">
+            <p className="text-xs text-[var(--muted)] break-all text-center">
+              {currentUser.email}
+            </p>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] hover:bg-[var(--hover)]"
+            >
+              ログアウト
+            </button>
+          </div>
+        )}
       </aside>
-      <main className="flex-1 min-w-0 p-6">
+      <main className="flex-1 min-w-0 min-h-0 overflow-auto p-6">
         <Outlet />
       </main>
     </div>

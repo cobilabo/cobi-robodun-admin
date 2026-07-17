@@ -1,28 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type AssetEntry } from '../lib/api';
-import { AlphaBoundsPreview } from './AlphaBoundsPreview';
-import { LazyAssetThumb } from './LazyAssetThumb';
 import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
 
 type Props = {
   value?: string;
   onPick: (path: string) => void;
   onClose: () => void;
-  preferCategory?: string;
 };
 
-export function AssetPicker({ value, onPick, onClose, preferCategory }: Props) {
+export function AudioPicker({ value, onPick, onClose }: Props) {
   const [assets, setAssets] = useState<AssetEntry[]>([]);
   const [q, setQ] = useState('');
-  const [cat, setCat] = useState(preferCategory ?? 'all');
+  const [cat, setCat] = useState('all');
   const [error, setError] = useState('');
   const [hover, setHover] = useState<string | null>(value ?? null);
-  const [previewSrc, setPreviewSrc] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
 
   useEffect(() => {
     api
-      .assets('UI')
-      .then((r) => setAssets(r.assets.filter((a) => a.kind === 'image')))
+      .assets('audio')
+      .then((r) => setAssets(r.assets.filter((a) => a.kind === 'audio')))
       .catch((e) => setError(String(e.message || e)));
   }, []);
 
@@ -41,17 +38,17 @@ export function AssetPicker({ value, onPick, onClose, preferCategory }: Props) {
 
   useEffect(() => {
     if (!previewPath) {
-      setPreviewSrc('');
+      setPreviewUrl('');
       return;
     }
     const cached = peekAssetUrl(previewPath, 'project');
     if (cached) {
-      setPreviewSrc(cached);
+      setPreviewUrl(cached);
       return;
     }
     let cancelled = false;
     ensureAssetUrl(previewPath, 'project').then((url) => {
-      if (!cancelled && url) setPreviewSrc(url);
+      if (!cancelled) setPreviewUrl(url ?? '');
     });
     return () => {
       cancelled = true;
@@ -60,12 +57,12 @@ export function AssetPicker({ value, onPick, onClose, preferCategory }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-[var(--panel)] rounded-lg border border-[var(--line)] w-full max-w-6xl h-[85vh] flex flex-col shadow-xl">
+      <div className="bg-[var(--panel)] rounded-lg border border-[var(--line)] w-full max-w-4xl h-[80vh] flex flex-col shadow-xl">
         <div className="flex items-center justify-between gap-3 p-4 border-b border-[var(--line)] shrink-0">
           <div>
-            <h3 className="font-semibold">プロジェクトアセットを選択</h3>
+            <h3 className="font-semibold">音声アセットを選択</h3>
             <p className="text-xs text-[var(--muted)]">
-              市松背景＝透明。右プレビューで余白範囲を確認できます。
+              project/assets/audio/ 配下。クリックで割当。
             </p>
           </div>
           <button
@@ -97,52 +94,48 @@ export function AssetPicker({ value, onPick, onClose, preferCategory }: Props) {
         </div>
         {error && <p className="p-3 text-sm text-[var(--danger)]">{error}</p>}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="overflow-auto p-3 grid grid-cols-3 md:grid-cols-4 gap-2 flex-1 content-start">
+          <div className="overflow-auto p-3 flex-1 space-y-1">
+            {filtered.length === 0 && (
+              <p className="text-sm text-[var(--muted)] p-2">
+                音声ファイルがありません。先に「素材を追加」でアップロードしてください。
+              </p>
+            )}
             {filtered.map((a) => {
               const selected = value === a.relativePath;
+              const active = hover === a.relativePath;
               return (
                 <button
                   key={a.relativePath}
                   type="button"
                   onMouseEnter={() => setHover(a.relativePath)}
                   onClick={() => onPick(a.relativePath)}
-                  className={`rounded border p-2 text-left hover:border-[var(--accent)] ${
-                    selected
+                  className={`w-full text-left rounded border px-3 py-2 ${
+                    selected || active
                       ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                      : 'border-[var(--line)] bg-[var(--input-bg)]'
+                      : 'border-[var(--line)] bg-[var(--input-bg)] hover:border-[var(--accent)]'
                   }`}
                 >
-                  <LazyAssetThumb
-                    relativePath={a.relativePath}
-                    source="project"
-                    initialUrl={a.url || peekAssetUrl(a.relativePath, 'project')}
-                  />
-                  <div className="text-[10px] leading-tight break-all text-[var(--muted)]">
-                    {a.name}
+                  <div className="text-sm font-medium break-all">{a.name}</div>
+                  <div className="text-[10px] font-mono text-[var(--muted)] break-all">
+                    {a.relativePath}
                   </div>
                 </button>
               );
             })}
           </div>
-          <aside className="w-[380px] shrink-0 border-l border-[var(--line)] p-4 overflow-auto">
-            <h4 className="text-sm font-medium mb-3">透明余白プレビュー</h4>
-            {previewPath && previewSrc ? (
-              <AlphaBoundsPreview
-                src={previewSrc}
-                cacheKey={previewPath}
-                maxSide={360}
-              />
+          <aside className="w-72 shrink-0 border-l border-[var(--line)] p-4 overflow-auto">
+            <h4 className="text-sm font-medium mb-2">プレビュー</h4>
+            {previewPath && previewUrl ? (
+              <>
+                <audio key={previewUrl} controls className="w-full" src={previewUrl} />
+                <p className="mt-2 text-[10px] font-mono break-all text-[var(--muted)]">
+                  {previewPath}
+                </p>
+              </>
             ) : previewPath ? (
               <p className="text-xs text-[var(--muted)]">読み込み中…</p>
             ) : (
-              <p className="text-xs text-[var(--muted)]">
-                画像にマウスを乗せてください
-              </p>
-            )}
-            {previewPath && (
-              <p className="mt-2 text-[10px] font-mono break-all text-[var(--muted)]">
-                {previewPath}
-              </p>
+              <p className="text-xs text-[var(--muted)]">行にマウスを乗せてください</p>
             )}
           </aside>
         </div>

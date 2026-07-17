@@ -3,6 +3,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import multer from 'multer';
+import { zipSync, strToU8 } from 'fflate';
 import {
   listAssets,
   listExternalLibrary,
@@ -12,7 +13,9 @@ import {
 import { backupDataFile } from './backup.js';
 import {
   CATALOG_FILES,
+  assetsDir,
   dataDir,
+  ensureWithin,
   gameRoot,
   isProjectRoot,
   libraryRoot,
@@ -210,6 +213,29 @@ app.get('/api/asset-file', (req, res) => {
   }
 });
 
+app.post('/api/library/upload', upload.single('file'), (req, res) => {
+  const lib = libraryRoot();
+  if (!lib) {
+    res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+    return;
+  }
+  const destPath = String(req.body?.destPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  if (!req.file || !destPath || destPath.includes('..')) {
+    res.status(400).json({ ok: false, error: 'file and destPath required' });
+    return;
+  }
+  try {
+    const full = ensureWithin(lib, path.join(lib, destPath));
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, req.file.buffer);
+    res.json({ ok: true, path: destPath });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.get('/api/library-file', (req, res) => {
   const lib = libraryRoot();
   if (!lib) {
@@ -250,6 +276,23 @@ app.post('/api/assets/import', (req, res) => {
   }
 });
 
+function resolveTrimTarget(
+  root: string,
+  rel: string,
+  source: 'project' | 'library',
+): string {
+  if (source === 'library') {
+    const lib = libraryRoot();
+    if (!lib) throw new Error('LIBRARY_ROOT 未設定');
+    const full = path.resolve(lib, String(rel).replace(/\//g, path.sep));
+    if (!full.startsWith(path.resolve(lib) + path.sep) && full !== path.resolve(lib)) {
+      throw new Error('Path escapes');
+    }
+    return full;
+  }
+  return resolveAssetFile(root, String(rel));
+}
+
 app.post('/api/assets/trim', async (req, res) => {
   const root = requireGame(res);
   if (!root) return;
@@ -259,20 +302,64 @@ app.post('/api/assets/trim', async (req, res) => {
     return;
   }
   try {
-    let full: string;
-    if (source === 'library') {
-      const lib = libraryRoot();
-      if (!lib) throw new Error('LIBRARY_ROOT 未設定');
-      full = path.resolve(lib, String(rel).replace(/\//g, path.sep));
-      if (!full.startsWith(path.resolve(lib) + path.sep)) throw new Error('Path escapes');
-    } else {
-      full = resolveAssetFile(root, String(rel));
-    }
+    const full = resolveTrimTarget(
+      root,
+      String(rel),
+      source === 'library' ? 'library' : 'project',
+    );
     const result = await trimTransparentPng(full);
     res.json({ ok: true, ...result });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+app.post('/api/assets/trim-batch', async (req, res) => {
+  const root = requireGame(res);
+  if (!root) return;
+  const paths = req.body?.paths;
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  if (!Array.isArray(paths) || paths.length === 0) {
+    res.status(400).json({ ok: false, error: 'paths[] required' });
+    return;
+  }
+  if (paths.length > 500) {
+    res.status(400).json({ ok: false, error: '一度に 500 件まで' });
+    return;
+  }
+
+  const results: {
+    path: string;
+    ok: boolean;
+    trimmed?: boolean;
+    before?: { width: number; height: number };
+    after?: { width: number; height: number };
+    error?: string;
+  }[] = [];
+
+  for (const rel of paths) {
+    try {
+      const full = resolveTrimTarget(root, String(rel), source);
+      const result = await trimTransparentPng(full);
+      results.push({
+        path: String(rel),
+        ok: true,
+        trimmed: result.trimmed,
+        before: result.before,
+        after: result.after,
+      });
+    } catch (e) {
+      results.push({ path: String(rel), ok: false, error: String(e) });
+    }
+  }
+
+  res.json({
+    ok: true,
+    trimmedCount: results.filter((r) => r.ok && r.trimmed).length,
+    unchangedCount: results.filter((r) => r.ok && !r.trimmed).length,
+    failedCount: results.filter((r) => !r.ok).length,
+    results,
+  });
 });
 
 app.post('/api/assets/upload', upload.single('file'), (req, res) => {
@@ -314,6 +401,49 @@ app.post('/api/ops/bump-content-version', (_req, res) => {
   );
   fs.writeFileSync(p, updated, 'utf8');
   res.json({ ok: true, from: m[1], to: next });
+});
+
+app.get('/api/ops/export-game-zip', (_req, res) => {
+  const root = requireGame(res);
+  if (!root) return;
+  try {
+    const files: Record<string, Uint8Array> = {};
+    const data = dataDir(root);
+    for (const name of CATALOG_FILES) {
+      const p = path.join(data, name);
+      if (!fs.existsSync(p)) continue;
+      files[`data/${name}`] = new Uint8Array(fs.readFileSync(p));
+    }
+    const assets = assetsDir(root);
+    const walk = (dir: string, base: string) => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) walk(full, base);
+        else {
+          const rel = path.relative(base, full).replace(/\\/g, '/');
+          files[`assets/${rel}`] = new Uint8Array(fs.readFileSync(full));
+        }
+      }
+    };
+    if (fs.existsSync(assets)) walk(assets, assets);
+    files['IMPORT.txt'] = strToU8(
+      [
+        'Robodun content export (local)',
+        '',
+        '展開後、data/ と assets/ を cobi-robodun ルートに上書きコピーしてください。',
+        '',
+      ].join('\n'),
+    );
+    const zipped = zipSync(files, { level: 6 });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="robodun-content-${new Date().toISOString().slice(0, 10)}.zip"`,
+    );
+    res.send(Buffer.from(zipped));
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
 });
 
 app.listen(port, () => {

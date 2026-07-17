@@ -1,107 +1,79 @@
-export type Issue = {
-  level: 'error' | 'warning';
-  catalog?: string;
-  id?: string;
-  message: string;
-};
+import { getDataMode, isCloudMode } from './mode';
+import { localApi } from './localApi';
+import type { AdminApi, AssetEntry, Issue } from './apiTypes';
 
-export type AssetEntry = {
-  relativePath: string;
-  name: string;
-  category: string;
-  kind: 'image' | 'audio' | 'other';
-  size: number;
-  mtimeMs: number;
-};
+export type { AssetEntry, Issue };
 
-async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  const data = await res.json();
-  if (!res.ok || data.ok === false) {
-    throw new Error(data.error || res.statusText);
+let cached: AdminApi | null = null;
+
+async function apiImpl(): Promise<AdminApi> {
+  if (cached) return cached;
+  if (isCloudMode()) {
+    const mod = await import('./cloudApi');
+    cached = mod.cloudApi;
+  } else {
+    cached = localApi;
   }
-  return data as T;
+  return cached;
 }
 
-export const api = {
-  health: () =>
-    req<{
-      ok: boolean;
-      gameRoot: string | null;
-      libraryRoot: string | null;
-      projectOk: boolean;
-    }>('/api/health'),
-
-  dashboard: () =>
-    req<{
-      ok: boolean;
-      gameRoot: string;
-      counts: Record<string, number>;
-      issues: Issue[];
-      contentVersion: string | null;
-    }>('/api/dashboard'),
-
-  catalogs: () =>
-    req<{
-      ok: boolean;
-      catalogs: { id: string; file: string; exists: boolean; count: number }[];
-    }>('/api/catalogs'),
-
-  getCatalog: (name: string) =>
-    req<{ ok: boolean; file: string; data: unknown }>(`/api/catalogs/${name}`),
-
-  saveCatalog: (name: string, data: unknown) =>
-    req<{ ok: boolean; backupPath: string | null; issues: Issue[] }>(
-      `/api/catalogs/${name}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
-      },
-    ),
-
-  validate: () => req<{ ok: boolean; issues: Issue[] }>('/api/validate'),
-
-  assets: (sub = '') =>
-    req<{ ok: boolean; assets: AssetEntry[] }>(
-      `/api/assets${sub ? `?sub=${encodeURIComponent(sub)}` : ''}`,
-    ),
-
-  library: () =>
-    req<{ ok: boolean; libraryRoot: string | null; assets: AssetEntry[] }>(
-      '/api/library',
-    ),
-
-  importAsset: (libraryPath: string, destPath: string) =>
-    req<{ ok: boolean; path: string }>('/api/assets/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ libraryPath, destPath }),
-    }),
-
-  trimAsset: (path: string, source: 'project' | 'library' = 'project') =>
-    req<{
-      ok: boolean;
-      before: { width: number; height: number };
-      after: { width: number; height: number };
-      trimmed: boolean;
-    }>('/api/assets/trim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, source }),
-    }),
-
-  bumpContentVersion: () =>
-    req<{ ok: boolean; from: string; to: string }>(
-      '/api/ops/bump-content-version',
-      { method: 'POST' },
-    ),
+type AsyncApi = {
+  [K in keyof Required<AdminApi>]: NonNullable<AdminApi[K]> extends (
+    ...args: infer A
+  ) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : never;
 };
 
-export function assetUrl(rel: string) {
+function wrap(): AsyncApi {
+  const handler = {} as AsyncApi;
+  const methods = [
+    'health',
+    'dashboard',
+    'catalogs',
+    'getCatalog',
+    'saveCatalog',
+    'validate',
+    'assets',
+    'library',
+    'resolveAssetUrls',
+    'importAsset',
+    'trimAsset',
+    'trimBatch',
+    'bumpContentVersion',
+    'uploadAsset',
+    'uploadLibraryFile',
+    'exportBundle',
+    'exportGameZip',
+  ] as const;
+
+  for (const key of methods) {
+    (handler as Record<string, unknown>)[key] = async (...args: unknown[]) => {
+      const impl = await apiImpl();
+      const fn = impl[key] as ((...a: unknown[]) => unknown) | undefined;
+      if (!fn) {
+        throw new Error(`${key} はこのモードでは利用できません`);
+      }
+      return fn(...args);
+    };
+  }
+  return handler;
+}
+
+export const api = wrap();
+
+export function assetUrl(rel: string, entry?: AssetEntry) {
+  if (entry?.url) return entry.url;
+  if (isCloudMode()) return '';
   return `/api/asset-file?path=${encodeURIComponent(rel)}`;
 }
 
-export function libraryUrl(rel: string) {
+export function libraryUrl(rel: string, entry?: AssetEntry) {
+  if (entry?.url) return entry.url;
+  if (isCloudMode()) return '';
   return `/api/library-file?path=${encodeURIComponent(rel)}`;
+}
+
+export function currentMode() {
+  return getDataMode();
 }

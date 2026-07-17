@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, assetUrl, type Issue } from '../lib/api';
+import { api, type Issue } from '../lib/api';
 import {
+  fieldCaption,
   inferFieldKind,
   refCatalogHint,
   rowLabel,
 } from '../lib/fieldInfer';
 import { AssetPicker } from '../components/AssetPicker';
+import { AlphaBoundsPreview } from '../components/AlphaBoundsPreview';
+import { JsonCodeEditor } from '../components/JsonCodeEditor';
+import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
+import {
+  labelForOption,
+  rowsToRefOptions,
+  type RefOption,
+} from '../lib/catalogRefs';
+import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
 
 const CATALOGS = [
   { id: 'characters', label: 'キャラ' },
@@ -18,16 +28,25 @@ const CATALOGS = [
 ] as const;
 
 type Row = Record<string, unknown>;
+type EditMode = 'form' | 'json';
+
+function formatCatalogJson(data: unknown): string {
+  return `${JSON.stringify(data, null, 2)}\n`;
+}
 
 export function CatalogEditor() {
   const [catalogId, setCatalogId] = useState<string>('enemies');
   const [rows, setRows] = useState<Row[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [idOptions, setIdOptions] = useState<Record<string, string[]>>({});
+  const [idOptions, setIdOptions] = useState<Record<string, RefOption[]>>({});
   const [status, setStatus] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
   const [pickerKey, setPickerKey] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [previewSrc, setPreviewSrc] = useState('');
+  const [editMode, setEditMode] = useState<EditMode>('form');
+  const [jsonText, setJsonText] = useState('[]\n');
+  const [jsonParseError, setJsonParseError] = useState('');
 
   const load = async (name: string) => {
     setStatus('読込中...');
@@ -36,6 +55,9 @@ export function CatalogEditor() {
     setRows(data);
     setSelectedIdx(0);
     setDirty(false);
+    setJsonText(formatCatalogJson(data));
+    setJsonParseError('');
+    setIssues([]);
     setStatus(`${name}: ${data.length} 件`);
   };
 
@@ -43,21 +65,59 @@ export function CatalogEditor() {
     load(catalogId).catch((e) => setStatus(String(e.message || e)));
   }, [catalogId]);
 
+  const switchCatalog = (id: string) => {
+    if (id === catalogId) return;
+    if (dirty && !confirm('未保存の変更があります。破棄してカタログを切り替えますか？')) {
+      return;
+    }
+    setCatalogId(id);
+  };
+
   useEffect(() => {
     Promise.all(
-      ['skills', 'equipment', 'effects', 'behaviors', 'characters'].map(async (n) => {
+      [
+        'skills',
+        'equipment',
+        'effects',
+        'behaviors',
+        'characters',
+        'enemies',
+        'bosses',
+      ].map(async (n) => {
         const r = await api.getCatalog(n);
         const arr = Array.isArray(r.data) ? (r.data as Row[]) : [];
-        return [n, arr.map((x) => String(x.id ?? '')).filter(Boolean)] as const;
+        return [n, rowsToRefOptions(arr)] as const;
       }),
     ).then((pairs) => {
-      const map: Record<string, string[]> = {};
+      const map: Record<string, RefOption[]> = {};
       for (const [k, v] of pairs) map[k] = v;
       setIdOptions(map);
     });
   }, []);
 
   const selected = rows[selectedIdx] ?? null;
+  const previewPath = selected
+    ? String(selected.icon || selected.portrait || '')
+    : '';
+
+  useEffect(() => {
+    if (!previewPath) {
+      setPreviewSrc('');
+      return;
+    }
+    const cached = peekAssetUrl(previewPath, 'project');
+    if (cached) {
+      setPreviewSrc(cached);
+      return;
+    }
+    let cancelled = false;
+    ensureAssetUrl(previewPath, 'project').then((url) => {
+      if (!cancelled) setPreviewSrc(url ?? '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewPath]);
 
   const keys = useMemo(() => {
     if (!selected) return [] as string[];
@@ -113,68 +173,247 @@ export function CatalogEditor() {
     setDirty(true);
   };
 
+  const parseJsonCatalog = (
+    text: string,
+  ): { ok: true; data: Row[] } | { ok: false; error: string } => {
+    try {
+      const parsed = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
+      if (!Array.isArray(parsed)) {
+        return { ok: false, error: 'ルートは JSON 配列である必要があります' };
+      }
+      for (let i = 0; i < parsed.length; i++) {
+        if (!parsed[i] || typeof parsed[i] !== 'object' || Array.isArray(parsed[i])) {
+          return {
+            ok: false,
+            error: `要素[${i}] はオブジェクトである必要があります`,
+          };
+        }
+      }
+      return { ok: true, data: parsed as Row[] };
+    } catch (e) {
+      return { ok: false, error: `JSON 構文エラー: ${(e as Error).message}` };
+    }
+  };
+
+  const applyJsonToForm = (): Row[] | null => {
+    const parsed = parseJsonCatalog(jsonText);
+    if (!parsed.ok) {
+      setJsonParseError(parsed.error);
+      setStatus(parsed.error);
+      return null;
+    }
+    setJsonParseError('');
+    setRows(parsed.data);
+    setSelectedIdx(0);
+    return parsed.data;
+  };
+
+  const switchEditMode = (mode: EditMode) => {
+    if (mode === editMode) return;
+    if (mode === 'json') {
+      setJsonText(formatCatalogJson(rows));
+      setJsonParseError('');
+      setEditMode('json');
+      return;
+    }
+    const data = applyJsonToForm();
+    if (!data) {
+      if (
+        !confirm(
+          'JSON にエラーがあります。破棄してフォームに戻りますか？',
+        )
+      ) {
+        return;
+      }
+      setJsonText(formatCatalogJson(rows));
+      setJsonParseError('');
+    }
+    setEditMode('form');
+  };
+
+  const runValidate = async (data: Row[]) => {
+    const catalogs: Record<string, unknown> = {};
+    await Promise.all(
+      CATALOG_IDS.map(async (id) => {
+        if (id === catalogId) {
+          catalogs[id] = data;
+          return;
+        }
+        if (id === 'audio') {
+          const r = await api.getCatalog(id);
+          catalogs[id] = r.data;
+          return;
+        }
+        const r = await api.getCatalog(id);
+        catalogs[id] = r.data;
+      }),
+    );
+    catalogs[catalogId] = data;
+    const assets = await api.assets();
+    const paths = assets.assets.map((a) => a.relativePath);
+    const all = validateCatalogBundle(catalogs, paths);
+    setIssues(all.filter((i) => i.catalog === catalogId || !i.catalog));
+    return all;
+  };
+
+  const validateOnly = async () => {
+    try {
+      setStatus('検証中...');
+      let data = rows;
+      if (editMode === 'json') {
+        const parsed = parseJsonCatalog(jsonText);
+        if (!parsed.ok) {
+          setJsonParseError(parsed.error);
+          setIssues([]);
+          setStatus(parsed.error);
+          return;
+        }
+        setJsonParseError('');
+        data = parsed.data;
+      }
+      const all = await runValidate(data);
+      const errors = all.filter(
+        (i) =>
+          (i.catalog === catalogId || !i.catalog) && i.level === 'error',
+      ).length;
+      const warns = all.filter(
+        (i) =>
+          (i.catalog === catalogId || !i.catalog) && i.level === 'warning',
+      ).length;
+      setStatus(`検証完了: エラー ${errors} / 警告 ${warns}`);
+    } catch (e) {
+      setStatus(String((e as Error).message || e));
+    }
+  };
+
   const save = async () => {
     try {
       setStatus('保存中...');
-      const r = await api.saveCatalog(catalogId, rows);
-      setIssues(r.issues.filter((i) => i.catalog === catalogId || !i.catalog));
+      let data = rows;
+      if (editMode === 'json') {
+        const parsed = parseJsonCatalog(jsonText);
+        if (!parsed.ok) {
+          setJsonParseError(parsed.error);
+          setStatus(`保存中止: ${parsed.error}`);
+          return;
+        }
+        setJsonParseError('');
+        data = parsed.data;
+        setRows(data);
+      }
+      const r = await api.saveCatalog(catalogId, data);
+      const related = r.issues.filter(
+        (i) => i.catalog === catalogId || !i.catalog,
+      );
+      setIssues(related);
       setDirty(false);
+      setJsonText(formatCatalogJson(data));
+      const errors = related.filter((i) => i.level === 'error').length;
+      const warns = related.filter((i) => i.level === 'warning').length;
       setStatus(
-        r.backupPath
+        (r.backupPath
           ? `保存しました（バックアップ: ${r.backupPath}）`
-          : '保存しました',
+          : '保存しました') + ` · 検証 エラー ${errors} / 警告 ${warns}`,
       );
     } catch (e) {
       setStatus(String((e as Error).message || e));
     }
   };
 
+  const onJsonChange = (text: string) => {
+    setJsonText(text);
+    setDirty(true);
+    const parsed = parseJsonCatalog(text);
+    setJsonParseError(parsed.ok ? '' : parsed.error);
+  };
+
   return (
-    <div className="h-[calc(100vh-3rem)] flex flex-col gap-3">
-      <header className="flex items-end justify-between gap-3">
+    <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
+      <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">カタログ編集</h2>
           <p className="text-sm text-[var(--muted)]">
-            3ペイン（種別 / 行 / フィールド）。{status}
+            {editMode === 'form' ? 'フォーム編集' : 'JSON 直接編集'}。{status}
             {dirty ? ' ・未保存の変更あり' : ''}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex rounded border border-[var(--line)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => switchEditMode('form')}
+              className={`px-3 py-1.5 text-sm ${
+                editMode === 'form'
+                  ? 'bg-[var(--accent)] text-[var(--bg)]'
+                  : 'bg-[var(--input-bg)]'
+              }`}
+            >
+              フォーム
+            </button>
+            <button
+              type="button"
+              onClick={() => switchEditMode('json')}
+              className={`px-3 py-1.5 text-sm border-l border-[var(--line)] ${
+                editMode === 'json'
+                  ? 'bg-[var(--accent)] text-[var(--bg)]'
+                  : 'bg-[var(--input-bg)]'
+              }`}
+            >
+              JSON
+            </button>
+          </div>
+          {editMode === 'form' && (
+            <>
+              <button
+                type="button"
+                onClick={addRow}
+                className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
+              >
+                行を追加
+              </button>
+              <button
+                type="button"
+                onClick={removeRow}
+                className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
+              >
+                行を削除
+              </button>
+            </>
+          )}
           <button
             type="button"
-            onClick={addRow}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-white"
+            onClick={() => void validateOnly()}
+            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
           >
-            行を追加
+            検証
           </button>
           <button
             type="button"
-            onClick={removeRow}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-white"
-          >
-            行を削除
-          </button>
-          <button
-            type="button"
-            onClick={save}
-            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-white"
+            onClick={() => void save()}
+            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)]"
           >
             保存
           </button>
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 grid grid-cols-[180px_280px_1fr] gap-3">
+      <div
+        className={`flex-1 min-h-0 grid gap-3 ${
+          editMode === 'json'
+            ? 'grid-cols-[180px_1fr]'
+            : 'grid-cols-[180px_280px_1fr]'
+        }`}
+      >
         <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
           {CATALOGS.map((c) => (
             <button
               key={c.id}
               type="button"
-              onClick={() => setCatalogId(c.id)}
+              onClick={() => switchCatalog(c.id)}
               className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
                 catalogId === c.id
                   ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-                  : 'hover:bg-black/5'
+                  : 'hover:bg-[var(--hover)]'
               }`}
             >
               {c.label}
@@ -183,6 +422,42 @@ export function CatalogEditor() {
           ))}
         </aside>
 
+        {editMode === 'json' ? (
+          <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] min-h-0 flex flex-col overflow-hidden">
+            <div className="px-3 py-2 border-b border-[var(--line)] flex items-center justify-between gap-2 shrink-0">
+              <span className="text-sm font-medium font-mono">{catalogId}.json</span>
+              <span
+                className={`text-xs ${
+                  jsonParseError ? 'text-[var(--danger)]' : 'text-[var(--accent)]'
+                }`}
+              >
+                {jsonParseError || 'JSON 構文 OK'}
+              </span>
+            </div>
+            <JsonCodeEditor value={jsonText} onChange={onJsonChange} />
+            {issues.length > 0 && (
+              <div className="border-t border-[var(--line)] p-3 shrink-0 max-h-40 overflow-auto">
+                <h4 className="text-sm font-medium mb-1">コンテンツ検証</h4>
+                <ul className="text-xs space-y-1">
+                  {issues.slice(0, 40).map((i, idx) => (
+                    <li
+                      key={idx}
+                      className={
+                        i.level === 'error'
+                          ? 'text-[var(--danger)]'
+                          : 'text-[var(--warn)]'
+                      }
+                    >
+                      {i.id ? `[${i.id}] ` : ''}
+                      {i.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        ) : (
+          <>
         <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
           {rows.map((row, i) => (
             <button
@@ -192,7 +467,7 @@ export function CatalogEditor() {
               className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
                 selectedIdx === i
                   ? 'bg-[var(--accent-soft)]'
-                  : 'hover:bg-black/5'
+                  : 'hover:bg-[var(--hover)]'
               }`}
             >
               {rowLabel(row)}
@@ -209,19 +484,21 @@ export function CatalogEditor() {
           )}
           {selected && (
             <div className="space-y-3 max-w-2xl">
-              {(selected.icon || selected.portrait) && (
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-16 h-16 rounded bg-[#efe9df] border border-[var(--line)] flex items-center justify-center overflow-hidden">
-                    <img
-                      src={assetUrl(
-                        String(selected.icon || selected.portrait || ''),
-                      )}
-                      alt=""
-                      className="max-w-full max-h-full object-contain"
-                      style={{ imageRendering: 'pixelated' }}
+              {Boolean(previewPath) && (
+                <div className="mb-4 max-w-md">
+                  <div className="text-sm text-[var(--muted)] mb-2">プレビュー</div>
+                  {previewSrc ? (
+                    <AlphaBoundsPreview
+                      src={previewSrc}
+                      cacheKey={previewPath}
+                      maxSide={320}
                     />
-                  </div>
-                  <div className="text-sm text-[var(--muted)]">プレビュー</div>
+                  ) : (
+                    <p className="text-xs text-[var(--muted)]">画像を読み込み中…</p>
+                  )}
+                  <p className="mt-1 text-[10px] font-mono break-all text-[var(--muted)]">
+                    {previewPath}
+                  </p>
                 </div>
               )}
               {keys.map((key) => {
@@ -229,20 +506,21 @@ export function CatalogEditor() {
                 const kind = inferFieldKind(key, value);
                 const hint = refCatalogHint(key);
                 const options = hint ? idOptions[hint] ?? [] : [];
+                const caption = fieldCaption(key);
 
                 if (kind === 'asset') {
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{key}</span>
+                      <span className="text-[var(--muted)]">{caption}</span>
                       <div className="mt-1 flex gap-2">
                         <input
-                          className="flex-1 rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs"
+                          className="flex-1 rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)]"
                           value={String(value ?? '')}
                           onChange={(e) => updateField(key, e.target.value)}
                         />
                         <button
                           type="button"
-                          className="px-2 py-1 rounded border border-[var(--line)] text-xs"
+                          className="px-2 py-1 rounded border border-[var(--line)] text-xs bg-[var(--input-bg)]"
                           onClick={() => setPickerKey(key)}
                         >
                           選択
@@ -259,50 +537,111 @@ export function CatalogEditor() {
                         .split(',')
                         .map((s) => s.trim())
                         .filter(Boolean);
+                  const orphan = arr.filter(
+                    (id) => !options.some((o) => o.id === id),
+                  );
                   return (
                     <fieldset key={key} className="text-sm">
-                      <legend className="text-[var(--muted)]">{key}</legend>
-                      <div className="mt-1 max-h-40 overflow-auto border border-[var(--line)] rounded p-2 grid grid-cols-2 gap-1">
+                      <legend className="text-[var(--muted)]">{caption}</legend>
+                      {arr.length > 0 && (
+                        <ul className="mt-1 mb-2 space-y-0.5 text-xs">
+                          {arr.map((id) => (
+                            <li
+                              key={id}
+                              className="rounded bg-[var(--input-bg)] px-2 py-1 border border-[var(--line)]"
+                            >
+                              {labelForOption(options, id)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="mt-1 max-h-48 overflow-auto border border-[var(--line)] rounded p-2 grid grid-cols-1 gap-1">
                         {options.map((opt) => (
-                          <label key={opt} className="flex items-center gap-1 text-xs">
+                          <label
+                            key={opt.id}
+                            className="flex items-start gap-2 text-xs leading-snug"
+                          >
                             <input
                               type="checkbox"
-                              checked={arr.includes(opt)}
+                              className="mt-0.5 shrink-0"
+                              checked={arr.includes(opt.id)}
                               onChange={(e) => {
                                 const next = e.target.checked
-                                  ? [...arr, opt]
-                                  : arr.filter((x) => x !== opt);
+                                  ? [...arr, opt.id]
+                                  : arr.filter((x) => x !== opt.id);
                                 updateField(key, next);
                               }}
                             />
-                            {opt}
+                            <span>
+                              <span className="font-mono text-[var(--muted)]">
+                                {opt.id}
+                              </span>
+                              {opt.name ? (
+                                <span className="text-[var(--ink)]">
+                                  {' '}
+                                  — {opt.name}
+                                </span>
+                              ) : null}
+                            </span>
                           </label>
                         ))}
+                        {orphan.map((id) => (
+                          <label
+                            key={id}
+                            className="flex items-start gap-2 text-xs text-[var(--warn)]"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked
+                              onChange={() =>
+                                updateField(
+                                  key,
+                                  arr.filter((x) => x !== id),
+                                )
+                              }
+                            />
+                            <span>
+                              {id}（参照先に存在しません）
+                            </span>
+                          </label>
+                        ))}
+                        {options.length === 0 && (
+                          <p className="text-[var(--muted)]">選択肢がありません</p>
+                        )}
                       </div>
                     </fieldset>
                   );
                 }
 
                 if (kind === 'idSingle') {
+                  const current = String(value ?? '');
+                  const known = options.some((o) => o.id === current);
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{key}</span>
+                      <span className="text-[var(--muted)]">{caption}</span>
                       <select
-                        className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
-                        value={String(value ?? '')}
+                        className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
+                        value={current}
                         onChange={(e) => updateField(key, e.target.value)}
                       >
                         <option value="">（なし）</option>
                         {options.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
                           </option>
                         ))}
-                        {value &&
-                          !options.includes(String(value)) && (
-                            <option value={String(value)}>{String(value)}</option>
-                          )}
+                        {current && !known ? (
+                          <option value={current}>
+                            {current}（参照先に存在しません）
+                          </option>
+                        ) : null}
                       </select>
+                      {current && (
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          選択中: {labelForOption(options, current)}
+                        </p>
+                      )}
                     </label>
                   );
                 }
@@ -407,6 +746,7 @@ export function CatalogEditor() {
                         : 'text-[var(--warn)]'
                     }
                   >
+                    {i.id ? `[${i.id}] ` : ''}
                     {i.message}
                   </li>
                 ))}
@@ -414,9 +754,11 @@ export function CatalogEditor() {
             </div>
           )}
         </section>
+          </>
+        )}
       </div>
 
-      {pickerKey && selected && (
+      {pickerKey && selected && editMode === 'form' && (
         <AssetPicker
           value={String(selected[pickerKey] ?? '')}
           preferCategory={

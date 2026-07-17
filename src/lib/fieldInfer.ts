@@ -44,7 +44,25 @@ export function refCatalogHint(key: string): string | null {
   if (k.includes('effect')) return 'effects';
   if (k.includes('behavior')) return 'behaviors';
   if (k.includes('character') || k.includes('exclusive')) return 'characters';
+  if (k.includes('enem')) return 'enemies';
+  if (k.includes('boss')) return 'bosses';
   return null;
+}
+
+/** Human-readable field caption including referenced catalog. */
+export function fieldCaption(key: string): string {
+  const hint = refCatalogHint(key);
+  if (!hint) return key;
+  const names: Record<string, string> = {
+    skills: 'スキル',
+    equipment: '装備',
+    effects: '効果',
+    behaviors: '行動',
+    characters: 'キャラ',
+    enemies: '敵',
+    bosses: 'ボス',
+  };
+  return `${key}（→ ${names[hint] ?? hint}）`;
 }
 
 export function rowLabel(row: Record<string, unknown>): string {

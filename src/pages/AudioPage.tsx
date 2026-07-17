@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type Issue } from '../lib/api';
+import { AudioPicker } from '../components/AudioPicker';
+import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
+import { collectAudioUploads } from '../lib/audioUpload';
 
 type Cue = {
   id: string;
@@ -16,7 +19,13 @@ const DEFAULT_CUES: Cue[] = [
   { id: 'bgm_title', kind: 'bgm', loop: true, trigger: 'Title', noteJa: 'タイトル' },
   { id: 'bgm_battle', kind: 'bgm', loop: true, trigger: 'Battle', noteJa: '戦闘' },
   { id: 'bgm_boss', kind: 'bgm', loop: true, trigger: 'Boss', noteJa: 'ボス' },
-  { id: 'bgm_gameover', kind: 'bgm', loop: false, trigger: 'GameOver', noteJa: 'ゲームオーバー' },
+  {
+    id: 'bgm_gameover',
+    kind: 'bgm',
+    loop: false,
+    trigger: 'GameOver',
+    noteJa: 'ゲームオーバー',
+  },
   { id: 'se_match', kind: 'se', trigger: 'MatchClear', noteJa: 'マッチ成立' },
   { id: 'se_clear', kind: 'se', trigger: 'TileClear', noteJa: '消去' },
   { id: 'se_hit', kind: 'se', trigger: 'Hit', noteJa: '着弾' },
@@ -25,11 +34,17 @@ const DEFAULT_CUES: Cue[] = [
   { id: 'ui_back', kind: 'ui', trigger: 'UiBack', noteJa: '戻る' },
 ];
 
+const UPLOAD_CONCURRENCY = 4;
+
 export function AudioPage() {
   const [doc, setDoc] = useState<AudioDoc>({ version: 1, cues: DEFAULT_CUES });
   const [status, setStatus] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
   const [selected, setSelected] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api
@@ -43,6 +58,26 @@ export function AudioPage() {
   }, []);
 
   const cue = doc.cues[selected];
+  const filePath = cue?.file?.trim() || '';
+
+  useEffect(() => {
+    if (!filePath) {
+      setPreviewUrl('');
+      return;
+    }
+    const cached = peekAssetUrl(filePath, 'project');
+    if (cached) {
+      setPreviewUrl(cached);
+      return;
+    }
+    let cancelled = false;
+    ensureAssetUrl(filePath, 'project').then((url) => {
+      if (!cancelled) setPreviewUrl(url ?? '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath]);
 
   const updateCue = (patch: Partial<Cue>) => {
     setDoc((prev) => {
@@ -56,7 +91,7 @@ export function AudioPage() {
     try {
       const r = await api.saveCatalog('audio', doc);
       setIssues(r.issues.filter((i) => i.catalog === 'audio'));
-      setStatus('audio.json を保存しました（再生はゲーム側スタブ段階）');
+      setStatus('audio.json を保存しました');
     } catch (e) {
       setStatus(String((e as Error).message || e));
     }
@@ -68,27 +103,94 @@ export function AudioPage() {
     setStatus('Must テンプレを読み込みました（未保存）');
   };
 
+  const runUpload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true);
+    setStatus('アップロード内容を解析中…');
+    try {
+      const items = await collectAudioUploads(files);
+      if (items.length === 0) {
+        setStatus('音声ファイルがありません（ogg/wav/mp3/m4a、またはそれらを含む ZIP）');
+        return;
+      }
+      if (
+        !confirm(
+          `${items.length} 件を assets/audio/ へアップロードします。同名は上書きされます。よろしいですか？`,
+        )
+      ) {
+        return;
+      }
+      let done = 0;
+      let failed = 0;
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < items.length) {
+          const idx = cursor++;
+          const item = items[idx];
+          try {
+            await api.uploadAsset(item.relativePath, item.blob, item.contentType);
+            done++;
+          } catch {
+            failed++;
+          }
+          setStatus(`アップロード中 ${done + failed}/${items.length}…`);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(UPLOAD_CONCURRENCY, items.length) }, () =>
+          worker(),
+        ),
+      );
+      setStatus(
+        `アップロード完了: 成功 ${done}` + (failed ? ` / 失敗 ${failed}` : ''),
+      );
+    } catch (e) {
+      setStatus(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <header className="flex items-end justify-between gap-3">
+      <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">音声割当</h2>
           <p className="text-sm text-[var(--muted)]">
-            data/audio.json。ファイルは assets/audio/ へ配置。{status}
+            キューに音声ファイルを割り当てます。ファイルは assets/audio/ に保存。{status}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <input
+            ref={uploadRef}
+            type="file"
+            accept="audio/*,.ogg,.wav,.mp3,.m4a,.zip,application/zip"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              void runUpload(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => uploadRef.current?.click()}
+            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+          >
+            素材を追加
+          </button>
           <button
             type="button"
             onClick={seed}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-white"
+            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
           >
             Must テンプレ
           </button>
           <button
             type="button"
             onClick={save}
-            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-white"
+            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)]"
           >
             保存
           </button>
@@ -103,7 +205,7 @@ export function AudioPage() {
               type="button"
               onClick={() => setSelected(i)}
               className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
-                selected === i ? 'bg-[var(--accent-soft)]' : 'hover:bg-black/5'
+                selected === i ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--hover)]'
               }`}
             >
               <div className="font-medium">{c.id}</div>
@@ -120,7 +222,7 @@ export function AudioPage() {
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">id</span>
                 <input
-                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[var(--input-bg)]"
                   value={cue.id}
                   onChange={(e) => updateCue({ id: e.target.value })}
                 />
@@ -128,7 +230,7 @@ export function AudioPage() {
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">kind</span>
                 <select
-                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
                   value={cue.kind}
                   onChange={(e) =>
                     updateCue({ kind: e.target.value as Cue['kind'] })
@@ -142,17 +244,26 @@ export function AudioPage() {
               </label>
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">file（assets 相対）</span>
-                <input
-                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs"
-                  placeholder="audio/bgm/battle.ogg"
-                  value={cue.file ?? ''}
-                  onChange={(e) => updateCue({ file: e.target.value })}
-                />
+                <div className="mt-1 flex gap-2">
+                  <input
+                    className="flex-1 rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)]"
+                    placeholder="audio/bgm/battle.ogg"
+                    value={cue.file ?? ''}
+                    onChange={(e) => updateCue({ file: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] shrink-0"
+                    onClick={() => setPickerOpen(true)}
+                  >
+                    選択
+                  </button>
+                </div>
               </label>
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">trigger</span>
                 <input
-                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
                   value={cue.trigger ?? ''}
                   onChange={(e) => updateCue({ trigger: e.target.value })}
                 />
@@ -168,17 +279,16 @@ export function AudioPage() {
               <label className="block text-sm">
                 <span className="text-[var(--muted)]">noteJa</span>
                 <input
-                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
                   value={cue.noteJa ?? ''}
                   onChange={(e) => updateCue({ noteJa: e.target.value })}
                 />
               </label>
-              {cue.file && (
-                <audio
-                  controls
-                  className="w-full mt-2"
-                  src={`/api/asset-file?path=${encodeURIComponent(cue.file)}`}
-                />
+              {filePath && previewUrl && (
+                <audio key={previewUrl} controls className="w-full mt-2" src={previewUrl} />
+              )}
+              {filePath && !previewUrl && (
+                <p className="text-xs text-[var(--muted)]">プレビュー読み込み中…</p>
               )}
             </>
           )}
@@ -191,6 +301,17 @@ export function AudioPage() {
           )}
         </section>
       </div>
+
+      {pickerOpen && (
+        <AudioPicker
+          value={cue?.file}
+          onPick={(path) => {
+            updateCue({ file: path });
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }
