@@ -147,6 +147,10 @@ async function main() {
   const bucket = getStorage().bucket();
   console.log('seed', { projectId, storageBucket, scope, concurrency, skipExisting, root, libraryRoot });
 
+  if (scope === 'catalogs') {
+    await seedCatalogs(db);
+  }
+
   if (scope === 'all' || scope === 'project') {
     await seedCatalogs(db);
     await uploadTree(bucket, path.join(root, 'assets'), 'project/assets', 'project assets');

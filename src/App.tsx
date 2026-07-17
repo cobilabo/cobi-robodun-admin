@@ -4,7 +4,6 @@ import { Dashboard } from './pages/Dashboard';
 import { CatalogEditor } from './pages/CatalogEditor';
 import { AssetsPage } from './pages/AssetsPage';
 import { AudioPage } from './pages/AudioPage';
-import { HudPage } from './pages/HudPage';
 import { OpsPage } from './pages/OpsPage';
 import { Login } from './pages/Login';
 import { AuthProvider, useAuth } from './hooks/useAuth';
@@ -32,7 +31,7 @@ export default function App() {
             <Route path="catalog" element={<CatalogEditor />} />
             <Route path="assets" element={<AssetsPage />} />
             <Route path="audio" element={<AudioPage />} />
-            <Route path="hud" element={<HudPage />} />
+            <Route path="hud" element={<Navigate to="/catalog?c=hud" replace />} />
             <Route path="ops" element={<OpsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

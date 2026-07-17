@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, type Issue } from '../lib/api';
 import {
   fieldCaption,
@@ -15,8 +16,8 @@ import {
   rowsToRefOptions,
   type RefOption,
 } from '../lib/catalogRefs';
+import { DEFAULT_HUD } from '../lib/catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
-import { HudPage } from './HudPage';
 
 const CATALOGS = [
   { id: 'characters', label: 'キャラ' },
@@ -31,14 +32,52 @@ const CATALOGS = [
 
 type Row = Record<string, unknown>;
 type EditMode = 'form' | 'json';
+type HudDoc = { appVersion: string; equipmentSlots: Row[] };
 
 function formatCatalogJson(data: unknown): string {
   return `${JSON.stringify(data, null, 2)}\n`;
 }
 
+function normalizeHud(raw: unknown): HudDoc {
+  const doc = (raw && typeof raw === 'object' ? raw : {}) as Partial<HudDoc>;
+  const slots = Array.isArray(doc.equipmentSlots)
+    ? doc.equipmentSlots.map((s) => ({
+        slot: String((s as Row)?.slot ?? 'Weapon'),
+        labelJa: String((s as Row)?.labelJa ?? ''),
+        icon: String((s as Row)?.icon ?? ''),
+      }))
+    : DEFAULT_HUD.equipmentSlots.map((s) => ({ ...s }));
+  return {
+    appVersion: String(doc.appVersion ?? DEFAULT_HUD.appVersion),
+    equipmentSlots: slots,
+  };
+}
+
+function hudSlotLabel(row: Row): string {
+  const slot = String(row.slot ?? '');
+  const label = String(row.labelJa ?? '');
+  return label ? `${slot} — ${label}` : slot || '(empty)';
+}
+
+function toHudPayload(appVersion: string, slots: Row[]): HudDoc {
+  return {
+    appVersion,
+    equipmentSlots: slots.map((s) => ({
+      slot: String(s.slot ?? ''),
+      labelJa: String(s.labelJa ?? ''),
+      icon: String(s.icon ?? ''),
+    })),
+  };
+}
+
 export function CatalogEditor() {
-  const [catalogId, setCatalogId] = useState<string>('enemies');
+  const [searchParams] = useSearchParams();
+  const [catalogId, setCatalogId] = useState<string>(() => {
+    const q = searchParams.get('c');
+    return CATALOGS.some((c) => c.id === q) ? (q as string) : 'enemies';
+  });
   const [rows, setRows] = useState<Row[]>([]);
+  const [appVersion, setAppVersion] = useState<string>(DEFAULT_HUD.appVersion);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [idOptions, setIdOptions] = useState<Record<string, RefOption[]>>({});
   const [status, setStatus] = useState('');
@@ -49,21 +88,23 @@ export function CatalogEditor() {
   const [editMode, setEditMode] = useState<EditMode>('form');
   const [jsonText, setJsonText] = useState('[]\n');
   const [jsonParseError, setJsonParseError] = useState('');
+  const isHud = catalogId === 'hud';
 
   const load = async (name: string) => {
     setStatus('読込中...');
+    const r = await api.getCatalog(name);
     if (name === 'hud') {
-      setRows([]);
+      const doc = normalizeHud(r.data);
+      setAppVersion(doc.appVersion);
+      setRows(doc.equipmentSlots);
       setSelectedIdx(0);
       setDirty(false);
-      setJsonText('{}\n');
+      setJsonText(formatCatalogJson(doc));
       setJsonParseError('');
       setIssues([]);
-      setEditMode('form');
-      setStatus('hud.json（専用エディタ）');
+      setStatus(`hud: ${doc.equipmentSlots.length} スロット`);
       return;
     }
-    const r = await api.getCatalog(name);
     const data = Array.isArray(r.data) ? (r.data as Row[]) : [];
     setRows(data);
     setSelectedIdx(0);
@@ -73,6 +114,13 @@ export function CatalogEditor() {
     setIssues([]);
     setStatus(`${name}: ${data.length} 件`);
   };
+
+  useEffect(() => {
+    const q = searchParams.get('c');
+    if (q && CATALOGS.some((c) => c.id === q) && q !== catalogId) {
+      setCatalogId(q);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     load(catalogId).catch((e) => setStatus(String(e.message || e)));
@@ -147,6 +195,19 @@ export function CatalogEditor() {
   };
 
   const addRow = () => {
+    if (isHud) {
+      const template: Row = selected
+        ? {
+            slot: String(selected.slot ?? 'Weapon'),
+            labelJa: '',
+            icon: '',
+          }
+        : { slot: 'Weapon', labelJa: '新規', icon: '' };
+      setRows((prev) => [...prev, template]);
+      setSelectedIdx(rows.length);
+      setDirty(true);
+      return;
+    }
     const prefixMap: Record<string, string> = {
       characters: 'chr_',
       enemies: 'enm_',
@@ -165,7 +226,9 @@ export function CatalogEditor() {
       const n = Number.parseInt(id.slice(prefix.length), 10);
       if (!Number.isNaN(n)) maxN = Math.max(maxN, n);
     }
-    const nextId = prefix ? `${prefix}${String(maxN + 1).padStart(2, '0')}` : `new_${Date.now().toString(36)}`;
+    const nextId = prefix
+      ? `${prefix}${String(maxN + 1).padStart(2, '0')}`
+      : `new_${Date.now().toString(36)}`;
     const template: Row = selected
       ? Object.fromEntries(
           Object.entries(selected).map(([k, v]) => {
@@ -186,7 +249,8 @@ export function CatalogEditor() {
 
   const removeRow = () => {
     if (!selected) return;
-    if (!confirm(`削除しますか？ ${rowLabel(selected)}`)) return;
+    const label = isHud ? hudSlotLabel(selected) : rowLabel(selected);
+    if (!confirm(`削除しますか？ ${label}`)) return;
     setRows((prev) => prev.filter((_, i) => i !== selectedIdx));
     setSelectedIdx(0);
     setDirty(true);
@@ -194,9 +258,18 @@ export function CatalogEditor() {
 
   const parseJsonCatalog = (
     text: string,
-  ): { ok: true; data: Row[] } | { ok: false; error: string } => {
+  ):
+    | { ok: true; data: Row[]; hud?: HudDoc }
+    | { ok: false; error: string } => {
     try {
       const parsed = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
+      if (isHud) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return { ok: false, error: 'ルートは JSON オブジェクトである必要があります' };
+        }
+        const doc = normalizeHud(parsed);
+        return { ok: true, data: doc.equipmentSlots, hud: doc };
+      }
       if (!Array.isArray(parsed)) {
         return { ok: false, error: 'ルートは JSON 配列である必要があります' };
       }
@@ -223,6 +296,7 @@ export function CatalogEditor() {
     }
     setJsonParseError('');
     setRows(parsed.data);
+    if (parsed.hud) setAppVersion(parsed.hud.appVersion);
     setSelectedIdx(0);
     return parsed.data;
   };
@@ -230,7 +304,9 @@ export function CatalogEditor() {
   const switchEditMode = (mode: EditMode) => {
     if (mode === editMode) return;
     if (mode === 'json') {
-      setJsonText(formatCatalogJson(rows));
+      setJsonText(
+        formatCatalogJson(isHud ? toHudPayload(appVersion, rows) : rows),
+      );
       setJsonParseError('');
       setEditMode('json');
       return;
@@ -244,30 +320,31 @@ export function CatalogEditor() {
       ) {
         return;
       }
-      setJsonText(formatCatalogJson(rows));
+      setJsonText(
+        formatCatalogJson(isHud ? toHudPayload(appVersion, rows) : rows),
+      );
       setJsonParseError('');
     }
     setEditMode('form');
   };
 
-  const runValidate = async (data: Row[]) => {
+  const runValidate = async (data: Row[] | HudDoc) => {
     const catalogs: Record<string, unknown> = {};
+    const payload =
+      isHud && Array.isArray(data)
+        ? toHudPayload(appVersion, data)
+        : data;
     await Promise.all(
       CATALOG_IDS.map(async (id) => {
         if (id === catalogId) {
-          catalogs[id] = data;
-          return;
-        }
-        if (id === 'audio') {
-          const r = await api.getCatalog(id);
-          catalogs[id] = r.data;
+          catalogs[id] = payload;
           return;
         }
         const r = await api.getCatalog(id);
         catalogs[id] = r.data;
       }),
     );
-    catalogs[catalogId] = data;
+    catalogs[catalogId] = payload;
     const assets = await api.assets();
     const paths = assets.assets.map((a) => a.relativePath);
     const all = validateCatalogBundle(catalogs, paths);
@@ -278,7 +355,7 @@ export function CatalogEditor() {
   const validateOnly = async () => {
     try {
       setStatus('検証中...');
-      let data = rows;
+      let data: Row[] | HudDoc = rows;
       if (editMode === 'json') {
         const parsed = parseJsonCatalog(jsonText);
         if (!parsed.ok) {
@@ -288,7 +365,9 @@ export function CatalogEditor() {
           return;
         }
         setJsonParseError('');
-        data = parsed.data;
+        data = parsed.hud ?? parsed.data;
+      } else if (isHud) {
+        data = toHudPayload(appVersion, rows);
       }
       const all = await runValidate(data);
       const errors = all.filter(
@@ -308,7 +387,7 @@ export function CatalogEditor() {
   const save = async () => {
     try {
       setStatus('保存中...');
-      let data = rows;
+      let data: Row[] | HudDoc = isHud ? toHudPayload(appVersion, rows) : rows;
       if (editMode === 'json') {
         const parsed = parseJsonCatalog(jsonText);
         if (!parsed.ok) {
@@ -317,8 +396,14 @@ export function CatalogEditor() {
           return;
         }
         setJsonParseError('');
-        data = parsed.data;
-        setRows(data);
+        if (parsed.hud) {
+          data = parsed.hud;
+          setAppVersion(parsed.hud.appVersion);
+          setRows(parsed.hud.equipmentSlots);
+        } else {
+          data = parsed.data;
+          setRows(parsed.data);
+        }
       }
       const r = await api.saveCatalog(catalogId, data);
       const related = r.issues.filter(
@@ -365,23 +450,6 @@ export function CatalogEditor() {
       ))}
     </aside>
   );
-
-  if (catalogId === 'hud') {
-    return (
-      <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
-        <header>
-          <h2 className="text-2xl font-semibold tracking-tight">カタログ編集</h2>
-          <p className="text-sm text-[var(--muted)]">{status}</p>
-        </header>
-        <div className="flex-1 min-h-0 grid gap-3 grid-cols-[180px_1fr]">
-          {catalogNav}
-          <div className="min-h-0 overflow-auto">
-            <HudPage />
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
@@ -510,7 +578,7 @@ export function CatalogEditor() {
                   : 'hover:bg-[var(--hover)]'
               }`}
             >
-              {rowLabel(row)}
+              {isHud ? hudSlotLabel(row) : rowLabel(row)}
             </button>
           ))}
           {rows.length === 0 && (
@@ -519,6 +587,22 @@ export function CatalogEditor() {
         </aside>
 
         <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto p-4">
+          {isHud && editMode === 'form' && (
+            <label className="block text-sm mb-4 max-w-2xl">
+              <span className="text-[var(--muted)]">appVersion</span>
+              <input
+                className="mt-1 w-full max-w-xs rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[var(--input-bg)]"
+                value={appVersion}
+                onChange={(e) => {
+                  setAppVersion(e.target.value);
+                  setDirty(true);
+                }}
+              />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                タイトル画面では v{'{appVersion}'} と表示されます
+              </span>
+            </label>
+          )}
           {!selected && (
             <p className="text-sm text-[var(--muted)]">行を選択してください</p>
           )}
@@ -808,7 +892,9 @@ export function CatalogEditor() {
                 ? 'skills'
                 : catalogId === 'equipment'
                   ? 'equipment'
-                  : 'enemies'
+                  : catalogId === 'hud'
+                    ? 'hud'
+                    : 'enemies'
           }
           onClose={() => setPickerKey(null)}
           onPick={(path) => {
