@@ -16,6 +16,7 @@ import {
   type RefOption,
 } from '../lib/catalogRefs';
 import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
+import { HudPage } from './HudPage';
 
 const CATALOGS = [
   { id: 'characters', label: 'キャラ' },
@@ -25,6 +26,7 @@ const CATALOGS = [
   { id: 'equipment', label: '装備' },
   { id: 'effects', label: '効果' },
   { id: 'behaviors', label: '行動' },
+  { id: 'hud', label: 'HUD' },
 ] as const;
 
 type Row = Record<string, unknown>;
@@ -50,6 +52,17 @@ export function CatalogEditor() {
 
   const load = async (name: string) => {
     setStatus('読込中...');
+    if (name === 'hud') {
+      setRows([]);
+      setSelectedIdx(0);
+      setDirty(false);
+      setJsonText('{}\n');
+      setJsonParseError('');
+      setIssues([]);
+      setEditMode('form');
+      setStatus('hud.json（専用エディタ）');
+      return;
+    }
     const r = await api.getCatalog(name);
     const data = Array.isArray(r.data) ? (r.data as Row[]) : [];
     setRows(data);
@@ -333,6 +346,43 @@ export function CatalogEditor() {
     setJsonParseError(parsed.ok ? '' : parsed.error);
   };
 
+  const catalogNav = (
+    <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
+      {CATALOGS.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          onClick={() => switchCatalog(c.id)}
+          className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
+            catalogId === c.id
+              ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
+              : 'hover:bg-[var(--hover)]'
+          }`}
+        >
+          {c.label}
+          <span className="block text-[10px] text-[var(--muted)]">{c.id}.json</span>
+        </button>
+      ))}
+    </aside>
+  );
+
+  if (catalogId === 'hud') {
+    return (
+      <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
+        <header>
+          <h2 className="text-2xl font-semibold tracking-tight">カタログ編集</h2>
+          <p className="text-sm text-[var(--muted)]">{status}</p>
+        </header>
+        <div className="flex-1 min-h-0 grid gap-3 grid-cols-[180px_1fr]">
+          {catalogNav}
+          <div className="min-h-0 overflow-auto">
+            <HudPage />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
       <header className="flex items-end justify-between gap-3 flex-wrap">
@@ -410,23 +460,7 @@ export function CatalogEditor() {
             : 'grid-cols-[180px_280px_1fr]'
         }`}
       >
-        <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
-          {CATALOGS.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => switchCatalog(c.id)}
-              className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
-                catalogId === c.id
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
-                  : 'hover:bg-[var(--hover)]'
-              }`}
-            >
-              {c.label}
-              <span className="block text-[10px] text-[var(--muted)]">{c.id}.json</span>
-            </button>
-          ))}
-        </aside>
+        {catalogNav}
 
         {editMode === 'json' ? (
           <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] min-h-0 flex flex-col overflow-hidden">
