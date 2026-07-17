@@ -22,6 +22,7 @@ import {
   libraryRoot,
 } from './paths.js';
 import { trimTransparentPng } from './trim.js';
+import { orderCatalogData, stringifyCatalog } from '../src/lib/catalogOrder.ts';
 import { validateGameContent } from './validate.js';
 
 const app = express();
@@ -156,7 +157,7 @@ app.get('/api/catalogs/:name', (req, res) => {
       res.json({
         ok: true,
         file,
-        data: {
+        data: orderCatalogData('hud', {
           appVersion: '1.0.0',
           equipmentSlots: [
             { slot: 'Weapon', labelJa: '武器', icon: 'UI/hud/slot_weapon.png' },
@@ -167,14 +168,15 @@ app.get('/api/catalogs/:name', (req, res) => {
               icon: 'UI/hud/slot_accessory.png',
             },
           ],
-        },
+        }),
       });
       return;
     }
     res.json({ ok: true, file, data: [] });
     return;
   }
-  const data = readJsonFile(p);
+  const catalogId = req.params.name;
+  const data = orderCatalogData(catalogId, readJsonFile(p));
   res.json({ ok: true, file, data });
 });
 
@@ -204,9 +206,11 @@ app.put('/api/catalogs/:name', (req, res) => {
     const backupPath = fs.existsSync(path.join(dataDir(root), file))
       ? backupDataFile(root, file)
       : null;
+    const catalogId = req.params.name;
+    const ordered = orderCatalogData(catalogId, data);
     const p = path.join(dataDir(root), file);
     fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify(data, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(p, stringifyCatalog(catalogId, ordered), 'utf8');
     const issues = validateGameContent(root);
     res.json({ ok: true, backupPath, issues });
   } catch (e) {
@@ -242,6 +246,7 @@ app.get('/api/asset-file', (req, res) => {
   const rel = String(req.query.path || '');
   try {
     const full = resolveAssetFile(root, rel);
+    res.setHeader('Cache-Control', 'no-store');
     res.sendFile(full);
   } catch (e) {
     res.status(400).json({ ok: false, error: String(e) });
@@ -287,6 +292,7 @@ app.get('/api/library-file', (req, res) => {
     res.status(404).end();
     return;
   }
+  res.setHeader('Cache-Control', 'no-store');
   res.sendFile(full);
 });
 
@@ -329,19 +335,21 @@ function resolveTrimTarget(
 }
 
 app.post('/api/assets/trim', async (req, res) => {
-  const root = requireGame(res);
-  if (!root) return;
-  const { path: rel, source } = req.body ?? {};
+  const { path: rel, source: srcRaw } = req.body ?? {};
+  const source = srcRaw === 'library' ? 'library' : 'project';
   if (!rel) {
     res.status(400).json({ ok: false, error: 'path required' });
     return;
   }
+  const root =
+    source === 'library' ? gameRoot() || '' : requireGame(res);
+  if (source === 'project' && !root) return;
+  if (source === 'library' && !libraryRoot()) {
+    res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+    return;
+  }
   try {
-    const full = resolveTrimTarget(
-      root,
-      String(rel),
-      source === 'library' ? 'library' : 'project',
-    );
+    const full = resolveTrimTarget(root, String(rel), source);
     const result = await trimTransparentPng(full);
     res.json({ ok: true, ...result });
   } catch (e) {
@@ -350,10 +358,15 @@ app.post('/api/assets/trim', async (req, res) => {
 });
 
 app.post('/api/assets/trim-batch', async (req, res) => {
-  const root = requireGame(res);
-  if (!root) return;
   const paths = req.body?.paths;
   const source = req.body?.source === 'library' ? 'library' : 'project';
+  const root =
+    source === 'library' ? gameRoot() || '' : requireGame(res);
+  if (source === 'project' && !root) return;
+  if (source === 'library' && !libraryRoot()) {
+    res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+    return;
+  }
   if (!Array.isArray(paths) || paths.length === 0) {
     res.status(400).json({ ok: false, error: 'paths[] required' });
     return;
@@ -410,6 +423,78 @@ app.post('/api/assets/upload', upload.single('file'), (req, res) => {
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, req.file.buffer);
     res.json({ ok: true, path: destPath.replace(/\\/g, '/') });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/library/copy', (req, res) => {
+  const lib = libraryRoot();
+  if (!lib) {
+    res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+    return;
+  }
+  const srcRel = String(req.body?.srcPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  const destRel = String(req.body?.destPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  if (!srcRel || !destRel) {
+    res.status(400).json({ ok: false, error: 'srcPath and destPath required' });
+    return;
+  }
+  if (srcRel === destRel) {
+    res.status(400).json({ ok: false, error: '複製先が複製元と同じです' });
+    return;
+  }
+  try {
+    const src = ensureWithin(lib, path.join(lib, srcRel.replace(/\//g, path.sep)));
+    const dest = ensureWithin(
+      lib,
+      path.join(lib, destRel.replace(/\//g, path.sep)),
+    );
+    if (!fs.existsSync(src)) {
+      res.status(404).json({ ok: false, error: '複製元が見つかりません' });
+      return;
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    res.json({ ok: true, path: destRel });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/assets/delete', (req, res) => {
+  const rel = String(req.body?.path || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  if (!rel) {
+    res.status(400).json({ ok: false, error: 'path required' });
+    return;
+  }
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  try {
+    let full: string;
+    if (source === 'library') {
+      const lib = libraryRoot();
+      if (!lib) {
+        res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+        return;
+      }
+      full = ensureWithin(lib, path.join(lib, rel.replace(/\//g, path.sep)));
+    } else {
+      const root = requireGame(res);
+      if (!root) return;
+      full = resolveAssetFile(root, rel);
+    }
+    if (!fs.existsSync(full)) {
+      res.status(404).json({ ok: false, error: 'ファイルが見つかりません' });
+      return;
+    }
+    fs.unlinkSync(full);
+    res.json({ ok: true, path: rel });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
   }

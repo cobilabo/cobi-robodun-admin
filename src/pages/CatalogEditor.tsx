@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api, type Issue } from '../lib/api';
 import {
   fieldCaption,
+  fieldNote,
   inferFieldKind,
   refCatalogHint,
   rowLabel,
@@ -10,12 +11,18 @@ import {
 import { AssetPicker } from '../components/AssetPicker';
 import { AlphaBoundsPreview } from '../components/AlphaBoundsPreview';
 import { JsonCodeEditor } from '../components/JsonCodeEditor';
+import { LazyAssetThumb } from '../components/LazyAssetThumb';
 import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
 import {
   labelForOption,
   rowsToRefOptions,
   type RefOption,
 } from '../lib/catalogRefs';
+import {
+  keysForRow,
+  orderCatalogData,
+  stringifyCatalog,
+} from '../lib/catalogOrder';
 import { DEFAULT_HUD } from '../lib/catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
 
@@ -34,23 +41,8 @@ type Row = Record<string, unknown>;
 type EditMode = 'form' | 'json';
 type HudDoc = { appVersion: string; equipmentSlots: Row[] };
 
-function formatCatalogJson(data: unknown): string {
-  return `${JSON.stringify(data, null, 2)}\n`;
-}
-
 function normalizeHud(raw: unknown): HudDoc {
-  const doc = (raw && typeof raw === 'object' ? raw : {}) as Partial<HudDoc>;
-  const slots = Array.isArray(doc.equipmentSlots)
-    ? doc.equipmentSlots.map((s) => ({
-        slot: String((s as Row)?.slot ?? 'Weapon'),
-        labelJa: String((s as Row)?.labelJa ?? ''),
-        icon: String((s as Row)?.icon ?? ''),
-      }))
-    : DEFAULT_HUD.equipmentSlots.map((s) => ({ ...s }));
-  return {
-    appVersion: String(doc.appVersion ?? DEFAULT_HUD.appVersion),
-    equipmentSlots: slots,
-  };
+  return orderCatalogData('hud', raw) as HudDoc;
 }
 
 function hudSlotLabel(row: Row): string {
@@ -59,15 +51,48 @@ function hudSlotLabel(row: Row): string {
   return label ? `${slot} — ${label}` : slot || '(empty)';
 }
 
+function rowImagePath(row: Row): string {
+  return String(row.icon || row.portrait || '').trim();
+}
+
+function FieldCaption({
+  fieldKey,
+  catalogId,
+  suffix = '',
+}: {
+  fieldKey: string;
+  catalogId: string;
+  suffix?: string;
+}) {
+  const note = fieldNote(fieldKey, catalogId);
+  return (
+    <span className="text-[var(--muted)]">
+      {fieldCaption(fieldKey)}
+      {suffix}
+      {note ? (
+        <span className="ml-2 text-[10px] opacity-80">{note}</span>
+      ) : null}
+    </span>
+  );
+}
+
 function toHudPayload(appVersion: string, slots: Row[]): HudDoc {
-  return {
+  return orderCatalogData('hud', {
     appVersion,
     equipmentSlots: slots.map((s) => ({
       slot: String(s.slot ?? ''),
       labelJa: String(s.labelJa ?? ''),
       icon: String(s.icon ?? ''),
     })),
-  };
+  }) as HudDoc;
+}
+
+function formatEditorJson(catalogId: string, rows: Row[], appVersion: string): string {
+  if (catalogId === 'hud') {
+    // JSON モードはスロット配列のみ（appVersion は非表示・保存時に維持）
+    return `${JSON.stringify(toHudPayload(appVersion, rows).equipmentSlots, null, 2)}\n`;
+  }
+  return stringifyCatalog(catalogId, rows);
 }
 
 export function CatalogEditor() {
@@ -99,20 +124,21 @@ export function CatalogEditor() {
       setRows(doc.equipmentSlots);
       setSelectedIdx(0);
       setDirty(false);
-      setJsonText(formatCatalogJson(doc));
+      setJsonText(formatEditorJson('hud', doc.equipmentSlots, doc.appVersion));
       setJsonParseError('');
       setIssues([]);
       setStatus(`hud: ${doc.equipmentSlots.length} スロット`);
       return;
     }
-    const data = Array.isArray(r.data) ? (r.data as Row[]) : [];
-    setRows(data);
+    const data = orderCatalogData(name, r.data) as Row[];
+    const rowsData = Array.isArray(data) ? data : [];
+    setRows(rowsData);
     setSelectedIdx(0);
     setDirty(false);
-    setJsonText(formatCatalogJson(data));
+    setJsonText(formatEditorJson(name, rowsData, DEFAULT_HUD.appVersion));
     setJsonParseError('');
     setIssues([]);
-    setStatus(`${name}: ${data.length} 件`);
+    setStatus(`${name}: ${rowsData.length} 件`);
   };
 
   useEffect(() => {
@@ -182,13 +208,17 @@ export function CatalogEditor() {
 
   const keys = useMemo(() => {
     if (!selected) return [] as string[];
-    return Object.keys(selected);
-  }, [selected]);
+    return keysForRow(catalogId, selected);
+  }, [selected, catalogId]);
 
   const updateField = (key: string, value: unknown) => {
     setRows((prev) => {
       const next = [...prev];
-      next[selectedIdx] = { ...next[selectedIdx], [key]: value };
+      const merged = { ...next[selectedIdx], [key]: value };
+      const orderedKeys = keysForRow(catalogId, merged);
+      next[selectedIdx] = Object.fromEntries(
+        orderedKeys.map((k) => [k, merged[k]]),
+      );
       return next;
     });
     setDirty(true);
@@ -258,17 +288,32 @@ export function CatalogEditor() {
 
   const parseJsonCatalog = (
     text: string,
-  ):
-    | { ok: true; data: Row[]; hud?: HudDoc }
-    | { ok: false; error: string } => {
+  ): { ok: true; data: Row[] } | { ok: false; error: string } => {
     try {
       const parsed = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
       if (isHud) {
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          return { ok: false, error: 'ルートは JSON オブジェクトである必要があります' };
+        // スロット配列、または旧形式の { equipmentSlots } オブジェクト
+        let slots: unknown;
+        if (Array.isArray(parsed)) {
+          slots = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          slots = (parsed as HudDoc).equipmentSlots;
+        } else {
+          return { ok: false, error: 'ルートは JSON 配列である必要があります' };
         }
-        const doc = normalizeHud(parsed);
-        return { ok: true, data: doc.equipmentSlots, hud: doc };
+        if (!Array.isArray(slots)) {
+          return { ok: false, error: 'equipmentSlots は配列である必要があります' };
+        }
+        for (let i = 0; i < slots.length; i++) {
+          if (!slots[i] || typeof slots[i] !== 'object' || Array.isArray(slots[i])) {
+            return {
+              ok: false,
+              error: `要素[${i}] はオブジェクトである必要があります`,
+            };
+          }
+        }
+        const doc = toHudPayload(appVersion, slots as Row[]);
+        return { ok: true, data: doc.equipmentSlots };
       }
       if (!Array.isArray(parsed)) {
         return { ok: false, error: 'ルートは JSON 配列である必要があります' };
@@ -281,7 +326,10 @@ export function CatalogEditor() {
           };
         }
       }
-      return { ok: true, data: parsed as Row[] };
+      return {
+        ok: true,
+        data: orderCatalogData(catalogId, parsed) as Row[],
+      };
     } catch (e) {
       return { ok: false, error: `JSON 構文エラー: ${(e as Error).message}` };
     }
@@ -296,7 +344,6 @@ export function CatalogEditor() {
     }
     setJsonParseError('');
     setRows(parsed.data);
-    if (parsed.hud) setAppVersion(parsed.hud.appVersion);
     setSelectedIdx(0);
     return parsed.data;
   };
@@ -304,9 +351,7 @@ export function CatalogEditor() {
   const switchEditMode = (mode: EditMode) => {
     if (mode === editMode) return;
     if (mode === 'json') {
-      setJsonText(
-        formatCatalogJson(isHud ? toHudPayload(appVersion, rows) : rows),
-      );
+      setJsonText(formatEditorJson(catalogId, rows, appVersion));
       setJsonParseError('');
       setEditMode('json');
       return;
@@ -320,9 +365,7 @@ export function CatalogEditor() {
       ) {
         return;
       }
-      setJsonText(
-        formatCatalogJson(isHud ? toHudPayload(appVersion, rows) : rows),
-      );
+      setJsonText(formatEditorJson(catalogId, rows, appVersion));
       setJsonParseError('');
     }
     setEditMode('form');
@@ -365,7 +408,7 @@ export function CatalogEditor() {
           return;
         }
         setJsonParseError('');
-        data = parsed.hud ?? parsed.data;
+        data = isHud ? toHudPayload(appVersion, parsed.data) : parsed.data;
       } else if (isHud) {
         data = toHudPayload(appVersion, rows);
       }
@@ -396,14 +439,8 @@ export function CatalogEditor() {
           return;
         }
         setJsonParseError('');
-        if (parsed.hud) {
-          data = parsed.hud;
-          setAppVersion(parsed.hud.appVersion);
-          setRows(parsed.hud.equipmentSlots);
-        } else {
-          data = parsed.data;
-          setRows(parsed.data);
-        }
+        setRows(parsed.data);
+        data = isHud ? toHudPayload(appVersion, parsed.data) : parsed.data;
       }
       const r = await api.saveCatalog(catalogId, data);
       const related = r.issues.filter(
@@ -411,7 +448,10 @@ export function CatalogEditor() {
       );
       setIssues(related);
       setDirty(false);
-      setJsonText(formatCatalogJson(data));
+      const savedRows = isHud
+        ? (data as HudDoc).equipmentSlots
+        : (data as Row[]);
+      setJsonText(formatEditorJson(catalogId, savedRows, appVersion));
       const errors = related.filter((i) => i.level === 'error').length;
       const warns = related.filter((i) => i.level === 'warning').length;
       setStatus(
@@ -567,42 +607,38 @@ export function CatalogEditor() {
         ) : (
           <>
         <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
-          {rows.map((row, i) => (
-            <button
-              key={`${row.id}-${i}`}
-              type="button"
-              onClick={() => setSelectedIdx(i)}
-              className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
-                selectedIdx === i
-                  ? 'bg-[var(--accent-soft)]'
-                  : 'hover:bg-[var(--hover)]'
-              }`}
-            >
-              {isHud ? hudSlotLabel(row) : rowLabel(row)}
-            </button>
-          ))}
+          {rows.map((row, i) => {
+            const imgPath = rowImagePath(row);
+            return (
+              <button
+                key={`${row.id ?? row.slot}-${i}`}
+                type="button"
+                onClick={() => setSelectedIdx(i)}
+                className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] flex items-center gap-2 ${
+                  selectedIdx === i
+                    ? 'bg-[var(--accent-soft)]'
+                    : 'hover:bg-[var(--hover)]'
+                }`}
+              >
+                {imgPath ? (
+                  <LazyAssetThumb
+                    relativePath={imgPath}
+                    source="project"
+                    className="!mb-0 size-7 shrink-0"
+                  />
+                ) : null}
+                <span className="min-w-0 break-all leading-snug">
+                  {isHud ? hudSlotLabel(row) : rowLabel(row)}
+                </span>
+              </button>
+            );
+          })}
           {rows.length === 0 && (
             <p className="p-3 text-sm text-[var(--muted)]">行がありません</p>
           )}
         </aside>
 
         <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto p-4">
-          {isHud && editMode === 'form' && (
-            <label className="block text-sm mb-4 max-w-2xl">
-              <span className="text-[var(--muted)]">appVersion</span>
-              <input
-                className="mt-1 w-full max-w-xs rounded border border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[var(--input-bg)]"
-                value={appVersion}
-                onChange={(e) => {
-                  setAppVersion(e.target.value);
-                  setDirty(true);
-                }}
-              />
-              <span className="mt-1 block text-xs text-[var(--muted)]">
-                タイトル画面では v{'{appVersion}'} と表示されます
-              </span>
-            </label>
-          )}
           {!selected && (
             <p className="text-sm text-[var(--muted)]">行を選択してください</p>
           )}
@@ -630,12 +666,29 @@ export function CatalogEditor() {
                 const kind = inferFieldKind(key, value);
                 const hint = refCatalogHint(key);
                 const options = hint ? idOptions[hint] ?? [] : [];
-                const caption = fieldCaption(key);
+                const caption = (
+                  <FieldCaption fieldKey={key} catalogId={catalogId} />
+                );
+
+                if (key === 'id') {
+                  return (
+                    <label key={key} className="block text-sm">
+                      {caption}
+                      <input
+                        className="mt-1 w-full rounded border border-dashed border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[rgba(255,255,255,0.03)] text-[var(--muted)] cursor-default opacity-80"
+                        value={String(value ?? '')}
+                        readOnly
+                        tabIndex={-1}
+                        title="フォームでは編集できません"
+                      />
+                    </label>
+                  );
+                }
 
                 if (kind === 'asset') {
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{caption}</span>
+                      {caption}
                       <div className="mt-1 flex gap-2">
                         <input
                           className="flex-1 rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)]"
@@ -666,7 +719,7 @@ export function CatalogEditor() {
                   );
                   return (
                     <fieldset key={key} className="text-sm">
-                      <legend className="text-[var(--muted)]">{caption}</legend>
+                      <legend>{caption}</legend>
                       {arr.length > 0 && (
                         <ul className="mt-1 mb-2 space-y-0.5 text-xs">
                           {arr.map((id) => (
@@ -743,7 +796,7 @@ export function CatalogEditor() {
                   const known = options.some((o) => o.id === current);
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{caption}</span>
+                      {caption}
                       <select
                         className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
                         value={current}
@@ -774,7 +827,7 @@ export function CatalogEditor() {
                   const obj = value as Record<string, number>;
                   return (
                     <fieldset key={key} className="text-sm">
-                      <legend className="text-[var(--muted)]">{key}</legend>
+                      <legend>{caption}</legend>
                       <div className="mt-1 grid grid-cols-2 gap-2">
                         {Object.entries(obj).map(([k, v]) => (
                           <label key={k} className="flex items-center gap-2">
@@ -800,7 +853,7 @@ export function CatalogEditor() {
                 if (kind === 'number') {
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{key}</span>
+                      {caption}
                       <input
                         type="number"
                         className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
@@ -819,7 +872,7 @@ export function CatalogEditor() {
                         checked={Boolean(value)}
                         onChange={(e) => updateField(key, e.target.checked)}
                       />
-                      {key}
+                      {caption}
                     </label>
                   );
                 }
@@ -827,7 +880,11 @@ export function CatalogEditor() {
                 if (kind === 'json') {
                   return (
                     <label key={key} className="block text-sm">
-                      <span className="text-[var(--muted)]">{key} (JSON)</span>
+                      <FieldCaption
+                        fieldKey={key}
+                        catalogId={catalogId}
+                        suffix=" (JSON)"
+                      />
                       <textarea
                         className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs h-24"
                         value={JSON.stringify(value, null, 2)}
@@ -845,7 +902,7 @@ export function CatalogEditor() {
 
                 return (
                   <label key={key} className="block text-sm">
-                    <span className="text-[var(--muted)]">{key}</span>
+                    {caption}
                     <input
                       className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
                       value={String(value ?? '')}

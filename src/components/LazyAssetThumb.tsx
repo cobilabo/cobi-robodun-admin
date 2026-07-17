@@ -6,7 +6,15 @@ type Props = {
   source: 'project' | 'library';
   initialUrl?: string;
   className?: string;
+  /** Bump after overwrite (trim 等) to bypass browser / CDN cache. */
+  revision?: string | number;
 };
+
+function withCacheBust(url: string, revision?: string | number): string {
+  if (revision == null || revision === '') return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}r=${encodeURIComponent(String(revision))}`;
+}
 
 /** Resolve Storage URL + load image only when near the viewport. */
 export function LazyAssetThumb({
@@ -14,6 +22,7 @@ export function LazyAssetThumb({
   source,
   initialUrl,
   className = '',
+  revision,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
@@ -23,7 +32,7 @@ export function LazyAssetThumb({
   useEffect(() => {
     setUrl(initialUrl ?? '');
     setFailed(false);
-  }, [initialUrl, relativePath]);
+  }, [initialUrl, relativePath, revision]);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -48,20 +57,23 @@ export function LazyAssetThumb({
     return () => {
       cancelled = true;
     };
-  }, [near, url, relativePath, source]);
+  }, [near, url, relativePath, source, revision]);
+
+  const displaySrc = url ? withCacheBust(url, revision) : '';
 
   return (
     <div
       ref={rootRef}
       className={`aspect-square checkerboard rounded flex items-center justify-center overflow-hidden mb-1 ${className}`}
     >
-      {url ? (
+      {displaySrc ? (
         <img
-          src={url}
+          key={displaySrc}
+          src={displaySrc}
           alt=""
           loading="lazy"
           decoding="async"
-          className="max-w-full max-h-full object-contain"
+          className="w-full h-full object-contain"
           style={{ imageRendering: 'pixelated' }}
           onError={() => setFailed(true)}
         />

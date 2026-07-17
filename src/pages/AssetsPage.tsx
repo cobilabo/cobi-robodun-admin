@@ -7,7 +7,12 @@ import {
 } from '../lib/api';
 import { AlphaBoundsPreview } from '../components/AlphaBoundsPreview';
 import { LazyAssetThumb } from '../components/LazyAssetThumb';
-import { ensureAssetUrl, peekAssetUrl, putAssetUrl } from '../lib/assetUrlCache';
+import {
+  ensureAssetUrl,
+  forgetAssetUrl,
+  peekAssetUrl,
+  putAssetUrl,
+} from '../lib/assetUrlCache';
 import {
   collectFromDataTransfer,
   collectUploadItems,
@@ -21,6 +26,17 @@ const PAGE_SIZE = 48;
 const UPLOAD_CONCURRENCY = 6;
 const IMPORT_CONCURRENCY = 4;
 const PREVIEW_WIDTH_KEY = 'robodun-admin.assets.previewWidth';
+
+function defaultLibraryCopyPath(rel: string): string {
+  const normalized = rel.replace(/\\/g, '/');
+  const i = normalized.lastIndexOf('/');
+  const dir = i >= 0 ? normalized.slice(0, i + 1) : '';
+  const name = i >= 0 ? normalized.slice(i + 1) : normalized;
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  return `${dir}${base}_copy${ext}`;
+}
 
 export function AssetsPage() {
   const [tab, setTab] = useState<'project' | 'library'>('project');
@@ -37,10 +53,14 @@ export function AssetsPage() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [destPath, setDestPath] = useState('UI/imported/item.png');
   const [importRoot, setImportRoot] = useState('UI/imported');
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupPath, setDupPath] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
+  /** Bumped after trim/overwrite so thumbs & preview bypass HTTP cache. */
+  const [mediaRev, setMediaRev] = useState(0);
   const [uploadPct, setUploadPct] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -178,6 +198,8 @@ export function AssetsPage() {
     const cached = a.url || peekAssetUrl(a.relativePath, source);
     const next = cached ? { ...a, url: cached } : a;
     setSelected(next);
+    setDupOpen(false);
+    setDupPath('');
     if (tab === 'library') {
       setDestPath(libraryDestFor(a.relativePath));
     }
@@ -208,7 +230,7 @@ export function AssetsPage() {
   const clearChecked = () => setChecked(new Set());
 
   const runTrim = async (paths: string[]) => {
-    if (paths.length === 0 || tab === 'library') return;
+    if (paths.length === 0 || tab !== 'library') return;
     if (
       !confirm(
         `${paths.length} 件の画像の透過余白をトリムします。上書きされます。よろしいですか？`,
@@ -219,12 +241,24 @@ export function AssetsPage() {
     setBusy(true);
     setMsg('トリム中...');
     try {
-      const r = await api.trimBatch(paths, source);
+      const r = await api.trimBatch(paths, 'library');
       setMsg(
         `トリム完了: 変更 ${r.trimmedCount} / 余白なし ${r.unchangedCount}` +
           (r.failedCount ? ` / 失敗 ${r.failedCount}` : ''),
       );
+      const rev = Date.now();
+      for (const p of paths) forgetAssetUrl(p, 'library');
+      setMediaRev(rev);
+      setPreviewKey(rev);
       await refresh();
+      if (selected && paths.includes(selected.relativePath)) {
+        const url = await ensureAssetUrl(selected.relativePath, 'library');
+        setSelected((prev) =>
+          prev && paths.includes(prev.relativePath)
+            ? { ...prev, url: url ?? prev.url }
+            : prev,
+        );
+      }
     } catch (e) {
       setMsg(String((e as Error).message || e));
     } finally {
@@ -240,6 +274,43 @@ export function AssetsPage() {
     runTrim([selected.relativePath]);
   };
 
+  const deleteSelected = async () => {
+    if (!selected) return;
+    const path = selected.relativePath;
+    const refs =
+      tab === 'project' ? (refCounts.get(path) ?? 0) : 0;
+    const where = tab === 'library' ? 'ライブラリ' : 'プロジェクト';
+    const warn =
+      refs > 0
+        ? `\n\n注意: カタログから ${refs} 件参照されています。削除すると参照切れになります。`
+        : '';
+    if (
+      !confirm(
+        `${where}から削除しますか？\n${path}${warn}\n\nこの操作は元に戻せません。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg('削除中...');
+    try {
+      await api.deleteAsset(path, source);
+      forgetAssetUrl(path, source);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+      setSelected(null);
+      setMsg(`削除しました: ${path}`);
+      await refresh();
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const importSelected = async () => {
     if (!selected || tab !== 'library') return;
     try {
@@ -249,6 +320,51 @@ export function AssetsPage() {
       await refresh();
     } catch (e) {
       setMsg(String((e as Error).message || e));
+    }
+  };
+
+  const openDuplicate = () => {
+    if (!selected || tab !== 'library') return;
+    setDupPath(defaultLibraryCopyPath(selected.relativePath));
+    setDupOpen(true);
+  };
+
+  const confirmDuplicate = async () => {
+    if (!selected || tab !== 'library') return;
+    const dest = dupPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
+    if (!dest) {
+      setMsg('複製先パスを入力してください');
+      return;
+    }
+    if (dest === selected.relativePath) {
+      setMsg('複製先が複製元と同じです');
+      return;
+    }
+    setBusy(true);
+    setMsg('複製中...');
+    try {
+      const r = await api.copyLibraryAsset(selected.relativePath, dest);
+      setMsg(`複製しました: ${r.path}`);
+      setDupOpen(false);
+      await loadLibrary();
+      const entry = (await api.library()).assets.find(
+        (a) => a.relativePath === r.path,
+      );
+      if (entry) await selectAsset(entry);
+      else {
+        setSelected({
+          relativePath: r.path,
+          name: r.path.split('/').pop() || r.path,
+          category: r.path.split('/')[0] || 'lib',
+          kind: 'image',
+          size: 0,
+          mtimeMs: Date.now(),
+        });
+      }
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -409,8 +525,8 @@ export function AssetsPage() {
           <h2 className="text-2xl font-semibold tracking-tight">アセット</h2>
           <p className="text-sm text-[var(--muted)]">
             {tab === 'library'
-              ? '外部素材庫。チェックで一括取込可。「素材を追加」またはドロップで追加。'
-              : 'ゲーム正本。チェックで複数トリム可。'}
+              ? '外部素材庫。トリム・複製・一括取込。「素材を追加」またはドロップで追加。'
+              : 'ゲーム正本。カタログ参照の確認・削除。'}
             {msg}
           </p>
         </div>
@@ -522,20 +638,8 @@ export function AssetsPage() {
             <button
               type="button"
               disabled={busy || checked.size === 0}
-              onClick={() => void importChecked()}
-              className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)] disabled:opacity-40"
-            >
-              選択を取込（{checked.size}）
-            </button>
-          </>
-        )}
-        {tab === 'project' && (
-          <>
-            <button
-              type="button"
-              disabled={busy || checked.size === 0}
               onClick={trimChecked}
-              className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)] disabled:opacity-40"
+              className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
             >
               選択をトリム（{checked.size}）
             </button>
@@ -546,6 +650,14 @@ export function AssetsPage() {
               className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
             >
               表示中を一括トリム（{visibleImages.length}）
+            </button>
+            <button
+              type="button"
+              disabled={busy || checked.size === 0}
+              onClick={() => void importChecked()}
+              className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)] disabled:opacity-40"
+            >
+              選択を取込（{checked.size}）
             </button>
           </>
         )}
@@ -644,6 +756,7 @@ export function AssetsPage() {
                       initialUrl={
                         a.url || peekAssetUrl(a.relativePath, source)
                       }
+                      revision={mediaRev || undefined}
                     />
                     <div className="text-[10px] break-all text-[var(--muted)]">
                       {a.name}
@@ -702,13 +815,13 @@ export function AssetsPage() {
           className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-3 overflow-y-auto min-h-0 shrink-0"
         >
           <h3 className="font-medium">
-            {tab === 'library' ? 'プレビュー' : 'プレビュー（透明余白）'}
+            {tab === 'library' ? 'プレビュー（透明余白）' : 'プレビュー'}
           </h3>
           {!selected && (
             <p className="text-sm text-[var(--muted)]">
               {tab === 'library'
-                ? 'チェックで複数選択し一括取込、または1件ずつ取込。'
-                : '画像をクリックして詳細表示。チェックで複数選択トリム。'}
+                ? 'チェックで一括トリム／取込。プレビューから複製・トリムも可。'
+                : '画像をクリックして詳細表示。'}
             </p>
           )}
           {selected && (
@@ -742,6 +855,16 @@ export function AssetsPage() {
                 </p>
               )}
               {tab === 'project' && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void deleteSelected()}
+                  className="w-full px-3 py-2 rounded border border-[var(--danger)] text-[var(--danger)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+                >
+                  この画像を削除
+                </button>
+              )}
+              {tab === 'library' && (
                 <>
                   <button
                     type="button"
@@ -751,30 +874,46 @@ export function AssetsPage() {
                   >
                     この画像をトリム
                   </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => toggleCheck(selected.relativePath)}
-                    className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-                  >
-                    {checked.has(selected.relativePath)
-                      ? '選択から外す'
-                      : '複数選択に追加'}
-                  </button>
-                </>
-              )}
-              {tab === 'library' && (
-                <>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => toggleCheck(selected.relativePath)}
-                    className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-                  >
-                    {checked.has(selected.relativePath)
-                      ? '選択から外す'
-                      : '複数選択に追加'}
-                  </button>
+                  {!dupOpen ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={openDuplicate}
+                      className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+                    >
+                      複製
+                    </button>
+                  ) : (
+                    <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
+                      <label className="block text-xs text-[var(--muted)]">
+                        複製先パス（ライブラリ相対）
+                        <input
+                          className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--panel)]"
+                          value={dupPath}
+                          onChange={(e) => setDupPath(e.target.value)}
+                          autoFocus
+                        />
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void confirmDuplicate()}
+                          className="flex-1 px-3 py-1.5 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
+                        >
+                          複製を実行
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setDupOpen(false)}
+                          className="px-3 py-1.5 rounded border border-[var(--line)] text-sm disabled:opacity-40"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <label className="block text-xs text-[var(--muted)]">
                     取込先（この1件・assets 相対）
                     <input
@@ -790,6 +929,14 @@ export function AssetsPage() {
                     className="w-full px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
                   >
                     この画像を取込
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void deleteSelected()}
+                    className="w-full px-3 py-2 rounded border border-[var(--danger)] text-[var(--danger)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+                  >
+                    この画像を削除
                   </button>
                 </>
               )}

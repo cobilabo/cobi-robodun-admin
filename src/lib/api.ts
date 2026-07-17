@@ -43,6 +43,8 @@ function wrap(): AsyncApi {
     'bumpContentVersion',
     'uploadAsset',
     'uploadLibraryFile',
+    'deleteAsset',
+    'copyLibraryAsset',
     'exportBundle',
     'exportGameZip',
   ] as const;

@@ -98,6 +98,15 @@ export type AdminApi = {
     file: Blob,
     contentType?: string,
   ) => Promise<{ ok: boolean; path: string }>;
+  deleteAsset: (
+    path: string,
+    source?: 'project' | 'library',
+  ) => Promise<{ ok: boolean; path: string }>;
+  /** Copy a file within the library (src → dest relative paths). */
+  copyLibraryAsset: (
+    srcPath: string,
+    destPath: string,
+  ) => Promise<{ ok: boolean; path: string }>;
   /** Legacy JSON-only catalog dump */
   exportBundle: () => Promise<Blob>;
   /**

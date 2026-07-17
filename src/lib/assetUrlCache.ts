@@ -101,6 +101,13 @@ export function putAssetUrl(
   urlCache.set(keyOf(source, path), url);
 }
 
+export function forgetAssetUrl(
+  path: string,
+  source: 'project' | 'library',
+) {
+  urlCache.delete(keyOf(source, path));
+}
+
 export function clearAssetUrlCache() {
   urlCache.clear();
 }

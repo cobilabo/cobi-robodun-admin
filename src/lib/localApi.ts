@@ -92,6 +92,20 @@ export const localApi: AdminApi = {
       body: JSON.stringify({ paths, source }),
     }),
 
+  deleteAsset: (path, source = 'project') =>
+    req<{ ok: boolean; path: string }>('/api/assets/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, source }),
+    }),
+
+  copyLibraryAsset: (srcPath, destPath) =>
+    req<{ ok: boolean; path: string }>('/api/library/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ srcPath, destPath }),
+    }),
+
   bumpContentVersion: () =>
     req('/api/ops/bump-content-version', { method: 'POST' }),
 

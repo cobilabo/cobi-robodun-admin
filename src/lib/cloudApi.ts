@@ -1,6 +1,13 @@
 import { zipSync, strToU8 } from 'fflate';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { getBlob, getDownloadURL, list, ref, uploadBytes } from 'firebase/storage';
+import { deleteDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  deleteObject,
+  getBlob,
+  getDownloadURL,
+  list,
+  ref,
+  uploadBytes,
+} from 'firebase/storage';
 import {
   getDb,
   getFirebaseAuth,
@@ -8,6 +15,7 @@ import {
 } from '../firebase/config';
 import { trimImageBlob } from './browserTrim';
 import type { AdminApi, AssetEntry } from './apiTypes';
+import { orderCatalogData, stringifyCatalog } from './catalogOrder';
 import { catalogEntryCount, DEFAULT_HUD } from './catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from './validateContent';
 
@@ -126,14 +134,16 @@ async function loadAllCatalogs(): Promise<Record<string, unknown>> {
   for (const id of CATALOG_IDS) {
     const snap = await getDoc(doc(getDb(), 'catalogs', id));
     if (!snap.exists()) {
-      result[id] =
+      result[id] = orderCatalogData(
+        id,
         id === 'audio'
           ? { version: 1, cues: [] }
           : id === 'hud'
             ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
-            : [];
+            : [],
+      );
     } else {
-      result[id] = snap.data().data;
+      result[id] = orderCatalogData(id, snap.data().data);
     }
   }
   return result;
@@ -239,34 +249,41 @@ export const cloudApi: AdminApi = {
     requireUser();
     const snap = await getDoc(doc(getDb(), 'catalogs', name));
     if (!snap.exists()) {
-      const data =
+      const data = orderCatalogData(
+        name,
         name === 'audio'
           ? { version: 1, cues: [] }
           : name === 'hud'
             ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
-            : [];
+            : [],
+      );
       return {
         ok: true,
         file: `${name}.json`,
         data,
       };
     }
-    return { ok: true, file: `${name}.json`, data: snap.data().data };
+    return {
+      ok: true,
+      file: `${name}.json`,
+      data: orderCatalogData(name, snap.data().data),
+    };
   },
 
   async saveCatalog(name, data) {
     const user = requireUser();
+    const ordered = orderCatalogData(name, data);
     await setDoc(
       doc(getDb(), 'catalogs', name),
       {
-        data,
+        data: ordered,
         updatedAt: serverTimestamp(),
         updatedBy: user.email ?? user.uid,
       },
       { merge: true },
     );
     const catalogs = await loadAllCatalogs();
-    catalogs[name] = data;
+    catalogs[name] = ordered;
     const paths = await assetPathList();
     const issues = validateCatalogBundle(catalogs, paths);
     return { ok: true, backupPath: null, issues };
@@ -339,15 +356,23 @@ export const cloudApi: AdminApi = {
   async trimAsset(path, source = 'project') {
     requireUser();
     const full = await resolveStoragePath(path, source);
+    const storageRef = ref(getFirebaseStorage(), full);
     // getBlob uses the SDK auth channel (avoids CORS issues with download URLs)
-    const blob = await getBlob(ref(getFirebaseStorage(), full));
+    const blob = await getBlob(storageRef);
     const result = await trimImageBlob(blob);
     if (result.trimmed && result.blob) {
-      await uploadBytes(ref(getFirebaseStorage(), full), result.blob, {
+      await uploadBytes(storageRef, result.blob, {
         contentType: 'image/png',
       });
       downloadUrlCache.delete(full);
       invalidateListCache(source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX);
+      // Warm a fresh download URL (token may be unchanged; client still cache-busts).
+      try {
+        const fresh = await getDownloadURL(storageRef);
+        downloadUrlCache.set(full, fresh);
+      } catch {
+        /* ignore */
+      }
     }
     return {
       ok: true,
@@ -387,6 +412,37 @@ export const cloudApi: AdminApi = {
     throw new Error(
       'クラウドモードでは ContentVersion バンプはできません。エクスポート後にゲームリポで行ってください。',
     );
+  },
+
+  async deleteAsset(path, source = 'project') {
+    requireUser();
+    const relative = path.replace(/\\/g, '/').replace(/^\/+/, '');
+    const full = await resolveStoragePath(relative, source);
+    await deleteObject(ref(getFirebaseStorage(), full));
+    downloadUrlCache.delete(full);
+    invalidateListCache(source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX);
+    if (source === 'project') {
+      try {
+        await deleteDoc(doc(getDb(), 'assets', relative.replace(/\//g, '__')));
+      } catch {
+        /* index doc が無い場合もある */
+      }
+    }
+    return { ok: true, path: relative };
+  },
+
+  async copyLibraryAsset(srcPath, destPath) {
+    requireUser();
+    const src = srcPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const dest = destPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!src || !dest) throw new Error('srcPath / destPath が必要です');
+    if (src === dest) throw new Error('複製先が複製元と同じです');
+    const blob = await getBlob(ref(getFirebaseStorage(), `${LIBRARY_PREFIX}/${src}`));
+    await uploadBytes(ref(getFirebaseStorage(), `${LIBRARY_PREFIX}/${dest}`), blob, {
+      contentType: blob.type || 'application/octet-stream',
+    });
+    invalidateListCache(LIBRARY_PREFIX);
+    return { ok: true, path: dest };
   },
 
   async uploadAsset(destPath, file, contentType) {
@@ -438,9 +494,14 @@ export const cloudApi: AdminApi = {
       data: catalogs,
       note: 'ゲーム反映は exportGameZip（data + assets）を推奨します。',
     };
-    return new Blob([JSON.stringify(payload, null, 2)], {
-      type: 'application/json',
-    });
+    const orderedData: Record<string, unknown> = {};
+    for (const id of CATALOG_IDS) {
+      orderedData[id] = orderCatalogData(id, catalogs[id]);
+    }
+    return new Blob(
+      [JSON.stringify({ ...payload, data: orderedData }, null, 2)],
+      { type: 'application/json' },
+    );
   },
 
   async exportGameZip(onProgress) {
@@ -451,7 +512,10 @@ export const cloudApi: AdminApi = {
 
     for (const id of CATALOG_IDS) {
       files[`data/${id}.json`] = strToU8(
-        `${JSON.stringify(catalogs[id] ?? (id === 'audio' ? { version: 1, cues: [] } : []), null, 2)}\n`,
+        stringifyCatalog(
+          id,
+          catalogs[id] ?? (id === 'audio' ? { version: 1, cues: [] } : []),
+        ),
       );
     }
 

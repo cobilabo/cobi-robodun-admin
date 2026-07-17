@@ -175,8 +175,8 @@ export function OpsPage() {
             など）。参照フィールドは必ず id
           </li>
           <li>
-            HUD: <code className="text-xs">data/hud.json</code>（appVersion /
-            equipmentSlots）は HUD ページで編集
+            HUD: <code className="text-xs">data/hud.json</code> の
+            equipmentSlots はカタログ（HUD）で編集
           </li>
           <li>画像パス: UI/カテゴリ/ファイル.png（assets 基準）</li>
           <li>音声パス: audio/bgm|se|ui/....ogg</li>
