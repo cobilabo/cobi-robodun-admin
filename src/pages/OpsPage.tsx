@@ -166,11 +166,18 @@ export function OpsPage() {
       <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-2 text-sm text-[var(--muted)]">
         <h3 className="font-medium text-[var(--ink)]">命名ガイド</h3>
         <ul className="list-disc list-inside space-y-1">
-          <li>キャラ: char_*</li>
-          <li>スキル: sk_*</li>
-          <li>効果: fx_*</li>
-          <li>行動: act_*</li>
-          <li>ボス: boss_*</li>
+          <li>
+            管理番号 <code className="text-xs">id</code>: chr_ / enm_ / bos_ / skl_ /
+            eq_ / fx_ / beh_ / aud_
+          </li>
+          <li>
+            通称 <code className="text-xs">code</code>: 旧名称（iron_sword, act_normal
+            など）。参照フィールドは必ず id
+          </li>
+          <li>
+            HUD: <code className="text-xs">data/hud.json</code>（appVersion /
+            equipmentSlots）は HUD ページで編集
+          </li>
           <li>画像パス: UI/カテゴリ/ファイル.png（assets 基準）</li>
           <li>音声パス: audio/bgm|se|ui/....ogg</li>
         </ul>

@@ -60,7 +60,7 @@ npx firebase deploy --only hosting
 ZIP の中身（ルート直下）:
 
 ```
-data/*.json          ← カタログ（audio.json 含む）
+data/*.json          ← カタログ（audio.json / hud.json 含む）
 assets/**            ← 画像・音声（project/assets 相当）
 IMPORT.txt           ← 手順メモ
 ```

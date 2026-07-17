@@ -13,6 +13,7 @@ import {
 import { backupDataFile } from './backup.js';
 import {
   CATALOG_FILES,
+  OBJECT_CATALOG_FILES,
   assetsDir,
   dataDir,
   ensureWithin,
@@ -73,10 +74,17 @@ app.get('/api/dashboard', (_req, res) => {
       counts[file] = 0;
       continue;
     }
-    const raw = readJsonFile(p) as { cues?: unknown[] } | unknown[];
+    const raw = readJsonFile(p) as
+      | { cues?: unknown[]; equipmentSlots?: unknown[] }
+      | unknown[];
     if (file === 'audio.json') {
       const doc = raw as { cues?: unknown[] };
       counts[file] = Array.isArray(doc?.cues) ? doc.cues.length : 0;
+    } else if (file === 'hud.json') {
+      const doc = raw as { equipmentSlots?: unknown[] };
+      counts[file] = Array.isArray(doc?.equipmentSlots)
+        ? doc.equipmentSlots.length
+        : 0;
     } else {
       counts[file] = Array.isArray(raw) ? raw.length : 0;
     }
@@ -112,15 +120,18 @@ app.get('/api/catalogs', (_req, res) => {
     const exists = fs.existsSync(p);
     let count = 0;
     if (exists) {
-      const raw = readJsonFile(p) as { cues?: unknown[] } | unknown[];
-      count =
-        file === 'audio.json'
-          ? Array.isArray((raw as { cues?: unknown[] })?.cues)
-            ? ((raw as { cues: unknown[] }).cues.length)
-            : 0
-          : Array.isArray(raw)
-            ? raw.length
-            : 0;
+      const raw = readJsonFile(p) as
+        | { cues?: unknown[]; equipmentSlots?: unknown[] }
+        | unknown[];
+      if (file === 'audio.json') {
+        const cues = (raw as { cues?: unknown[] })?.cues;
+        count = Array.isArray(cues) ? cues.length : 0;
+      } else if (file === 'hud.json') {
+        const slots = (raw as { equipmentSlots?: unknown[] })?.equipmentSlots;
+        count = Array.isArray(slots) ? slots.length : 0;
+      } else {
+        count = Array.isArray(raw) ? raw.length : 0;
+      }
     }
     return { id: file.replace(/\.json$/, ''), file, exists, count };
   });
@@ -139,6 +150,25 @@ app.get('/api/catalogs/:name', (req, res) => {
   if (!fs.existsSync(p)) {
     if (file === 'audio.json') {
       res.json({ ok: true, file, data: { version: 1, cues: [] } });
+      return;
+    }
+    if (file === 'hud.json') {
+      res.json({
+        ok: true,
+        file,
+        data: {
+          appVersion: '1.0.0',
+          equipmentSlots: [
+            { slot: 'Weapon', labelJa: '武器', icon: 'UI/hud/slot_weapon.png' },
+            { slot: 'Armor', labelJa: '防具', icon: 'UI/hud/slot_armor.png' },
+            {
+              slot: 'Accessory',
+              labelJa: 'アクセ',
+              icon: 'UI/hud/slot_accessory.png',
+            },
+          ],
+        },
+      });
       return;
     }
     res.json({ ok: true, file, data: [] });
@@ -161,8 +191,13 @@ app.put('/api/catalogs/:name', (req, res) => {
     res.status(400).json({ ok: false, error: 'body.data required' });
     return;
   }
-  if (file !== 'audio.json' && !Array.isArray(data)) {
+  const allowObject = (OBJECT_CATALOG_FILES as readonly string[]).includes(file);
+  if (!allowObject && !Array.isArray(data)) {
     res.status(400).json({ ok: false, error: 'data must be an array' });
+    return;
+  }
+  if (allowObject && (data === null || typeof data !== 'object' || Array.isArray(data))) {
+    res.status(400).json({ ok: false, error: 'data must be an object' });
     return;
   }
   try {

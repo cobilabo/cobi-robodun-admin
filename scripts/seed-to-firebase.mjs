@@ -112,6 +112,7 @@ async function seedCatalogs(db) {
     'effects',
     'behaviors',
     'audio',
+    'hud',
   ];
 
   for (const id of catalogs) {

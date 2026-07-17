@@ -213,5 +213,71 @@ export function validateGameContent(root: string): Issue[] {
     }
   }
 
+  const hudPath = path.join(d, 'hud.json');
+  if (!fs.existsSync(hudPath)) {
+    issues.push({
+      level: 'warning',
+      catalog: 'hud',
+      message: 'hud.json がありません',
+    });
+  } else {
+    const hud = JSON.parse(readText(hudPath)) as {
+      appVersion?: unknown;
+      equipmentSlots?: Record<string, unknown>[];
+    };
+    if (!String(hud.appVersion ?? '').trim()) {
+      issues.push({
+        level: 'error',
+        catalog: 'hud',
+        message: 'appVersion が空です',
+      });
+    }
+    const slots = Array.isArray(hud.equipmentSlots) ? hud.equipmentSlots : [];
+    if (slots.length === 0) {
+      issues.push({
+        level: 'error',
+        catalog: 'hud',
+        message: 'equipmentSlots が空です',
+      });
+    }
+    const seenSlots = new Set<string>();
+    for (const [i, slot] of slots.entries()) {
+      const slotKey = String(slot.slot ?? '').trim();
+      const icon = String(slot.icon ?? '').trim();
+      if (!slotKey) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: `slot[${i}]`,
+          message: 'slot が空です',
+        });
+      } else if (seenSlots.has(slotKey)) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey,
+          message: `slot が重複: ${slotKey}`,
+        });
+      } else {
+        seenSlots.add(slotKey);
+      }
+      if (!icon) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey || `slot[${i}]`,
+          message: 'icon が未設定です',
+        });
+      } else if (!assetExists(root, icon)) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey || `slot[${i}]`,
+          message: `icon ファイル無し: ${icon}`,
+        });
+      }
+    }
+  }
+
   return issues;
 }

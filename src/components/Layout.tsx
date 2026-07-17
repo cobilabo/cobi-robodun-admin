@@ -4,6 +4,7 @@ import {
   Database,
   Images,
   Music2,
+  PanelTop,
   Wrench,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
@@ -13,6 +14,7 @@ const links = [
   { to: '/catalog', label: 'カタログ', icon: Database },
   { to: '/assets', label: 'アセット', icon: Images },
   { to: '/audio', label: '音声', icon: Music2 },
+  { to: '/hud', label: 'HUD', icon: PanelTop },
   { to: '/ops', label: '運用', icon: Wrench },
 ];
 

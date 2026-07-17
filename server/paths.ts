@@ -55,6 +55,10 @@ export const CATALOG_FILES = [
   'effects.json',
   'behaviors.json',
   'audio.json',
+  'hud.json',
 ] as const;
 
 export type CatalogFile = (typeof CATALOG_FILES)[number];
+
+/** Non-array catalog documents (object root). */
+export const OBJECT_CATALOG_FILES = ['audio.json', 'hud.json'] as const;

@@ -1,4 +1,5 @@
 import type { AdminApi, AssetEntry, Issue } from './apiTypes';
+import { CATALOG_IDS } from './catalogRegistry';
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -122,16 +123,7 @@ export const localApi: AdminApi = {
 
   async exportBundle() {
     const catalogs = await Promise.all(
-      [
-        'characters',
-        'enemies',
-        'bosses',
-        'skills',
-        'equipment',
-        'effects',
-        'behaviors',
-        'audio',
-      ].map(async (id) => {
+      CATALOG_IDS.map(async (id) => {
         const r = await req<{ data: unknown }>(`/api/catalogs/${id}`);
         return [id, r.data] as const;
       }),

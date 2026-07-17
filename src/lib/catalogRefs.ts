@@ -101,6 +101,12 @@ export function countAssetRefs(
       }
       continue;
     }
+    if (catalogId === 'hud') {
+      const found: string[] = [];
+      visitValue(data, null, found);
+      for (const p of found) bump(p);
+      continue;
+    }
     if (!Array.isArray(data)) continue;
     for (const row of data) {
       const found: string[] = [];
@@ -121,6 +127,7 @@ export function catalogTitle(id: string): string {
     enemies: '敵',
     bosses: 'ボス',
     audio: '音声',
+    hud: 'HUD',
   };
   return map[id] ?? id;
 }

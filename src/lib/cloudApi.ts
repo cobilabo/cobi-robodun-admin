@@ -8,6 +8,7 @@ import {
 } from '../firebase/config';
 import { trimImageBlob } from './browserTrim';
 import type { AdminApi, AssetEntry } from './apiTypes';
+import { catalogEntryCount, DEFAULT_HUD } from './catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from './validateContent';
 
 const PROJECT_PREFIX = 'project/assets';
@@ -125,7 +126,12 @@ async function loadAllCatalogs(): Promise<Record<string, unknown>> {
   for (const id of CATALOG_IDS) {
     const snap = await getDoc(doc(getDb(), 'catalogs', id));
     if (!snap.exists()) {
-      result[id] = id === 'audio' ? { version: 1, cues: [] } : [];
+      result[id] =
+        id === 'audio'
+          ? { version: 1, cues: [] }
+          : id === 'hud'
+            ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+            : [];
     } else {
       result[id] = snap.data().data;
     }
@@ -195,13 +201,7 @@ export const cloudApi: AdminApi = {
     const paths = await assetPathList();
     const counts: Record<string, number> = {};
     for (const id of CATALOG_IDS) {
-      const data = catalogs[id];
-      if (id === 'audio') {
-        const cues = (data as { cues?: unknown[] })?.cues;
-        counts[`${id}.json`] = Array.isArray(cues) ? cues.length : 0;
-      } else {
-        counts[`${id}.json`] = Array.isArray(data) ? data.length : 0;
-      }
+      counts[`${id}.json`] = catalogEntryCount(id, catalogs[id]);
     }
     return {
       ok: true,
@@ -217,20 +217,18 @@ export const cloudApi: AdminApi = {
     const catalogs = await Promise.all(
       CATALOG_IDS.map(async (id) => {
         const snap = await getDoc(doc(getDb(), 'catalogs', id));
-        const data = snap.exists() ? snap.data().data : id === 'audio' ? { cues: [] } : [];
-        const count =
-          id === 'audio'
-            ? Array.isArray((data as { cues?: unknown[] })?.cues)
-              ? (data as { cues: unknown[] }).cues.length
-              : 0
-            : Array.isArray(data)
-              ? data.length
-              : 0;
+        const data = snap.exists()
+          ? snap.data().data
+          : id === 'audio'
+            ? { version: 1, cues: [] }
+            : id === 'hud'
+              ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+              : [];
         return {
           id,
           file: `${id}.json`,
           exists: snap.exists(),
-          count,
+          count: catalogEntryCount(id, data),
         };
       }),
     );
@@ -241,10 +239,16 @@ export const cloudApi: AdminApi = {
     requireUser();
     const snap = await getDoc(doc(getDb(), 'catalogs', name));
     if (!snap.exists()) {
+      const data =
+        name === 'audio'
+          ? { version: 1, cues: [] }
+          : name === 'hud'
+            ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+            : [];
       return {
         ok: true,
         file: `${name}.json`,
-        data: name === 'audio' ? { version: 1, cues: [] } : [],
+        data,
       };
     }
     return { ok: true, file: `${name}.json`, data: snap.data().data };

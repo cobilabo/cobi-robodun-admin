@@ -1,4 +1,7 @@
 import type { Issue } from './apiTypes';
+import { CATALOG_IDS } from './catalogRegistry';
+
+export { CATALOG_IDS };
 
 function assetExists(paths: Set<string>, rel?: unknown): boolean {
   if (typeof rel !== 'string' || !rel.trim()) return false;
@@ -26,6 +29,9 @@ export function validateCatalogBundle(
   const behaviors = asRows(catalogs.behaviors);
   const audioRaw = catalogs.audio as { cues?: Record<string, unknown>[] } | undefined;
   const audioCues = Array.isArray(audioRaw?.cues) ? audioRaw!.cues! : [];
+  const hudRaw = catalogs.hud as
+    | { appVersion?: unknown; equipmentSlots?: Record<string, unknown>[] }
+    | undefined;
 
   const skillIds = new Set(skills.map((x) => String(x.id ?? '')));
   const effectIds = new Set(effects.map((x) => String(x.id ?? '')));
@@ -217,16 +223,78 @@ export function validateCatalogBundle(
     }
   }
 
+  if (hudRaw == null) {
+    issues.push({
+      level: 'warning',
+      catalog: 'hud',
+      message: 'hud.json が未設定です',
+    });
+  } else {
+    const ver = String(hudRaw.appVersion ?? '').trim();
+    if (!ver) {
+      issues.push({
+        level: 'error',
+        catalog: 'hud',
+        message: 'appVersion が空です',
+      });
+    }
+    const slots = Array.isArray(hudRaw.equipmentSlots)
+      ? hudRaw.equipmentSlots
+      : [];
+    if (slots.length === 0) {
+      issues.push({
+        level: 'error',
+        catalog: 'hud',
+        message: 'equipmentSlots が空です',
+      });
+    }
+    const seenSlots = new Set<string>();
+    for (const [i, slot] of slots.entries()) {
+      const slotKey = String(slot.slot ?? '').trim();
+      const label = String(slot.labelJa ?? '').trim();
+      const icon = String(slot.icon ?? '').trim();
+      if (!slotKey) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: `slot[${i}]`,
+          message: 'slot が空です',
+        });
+      } else if (seenSlots.has(slotKey)) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey,
+          message: `slot が重複しています: ${slotKey}`,
+        });
+      } else {
+        seenSlots.add(slotKey);
+      }
+      if (!label) {
+        issues.push({
+          level: 'warning',
+          catalog: 'hud',
+          id: slotKey || `slot[${i}]`,
+          message: 'labelJa が未設定です',
+        });
+      }
+      if (!icon) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey || `slot[${i}]`,
+          message: 'icon が未設定です',
+        });
+      } else if (!assetExists(pathSet, icon)) {
+        issues.push({
+          level: 'error',
+          catalog: 'hud',
+          id: slotKey || `slot[${i}]`,
+          message: `icon ファイル無し: ${icon}`,
+        });
+      }
+    }
+  }
+
   return issues;
 }
-
-export const CATALOG_IDS = [
-  'characters',
-  'enemies',
-  'bosses',
-  'skills',
-  'equipment',
-  'effects',
-  'behaviors',
-  'audio',
-] as const;
