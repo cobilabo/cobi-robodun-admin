@@ -40,12 +40,35 @@ type HudDoc = {
   assetSlots: Row[];
 };
 
+function mergeDefaultHudAssetSlots(existing: Row[]): Row[] {
+  const byKey = new Map<string, Row>();
+  for (const s of existing) {
+    const key = String(s.key ?? '').trim();
+    if (key) byKey.set(key, s);
+  }
+  const merged: Row[] = [];
+  for (const def of DEFAULT_HUD.assetSlots) {
+    const cur = byKey.get(def.key);
+    if (cur) {
+      merged.push(cur);
+      byKey.delete(def.key);
+    } else {
+      merged.push({ ...def });
+    }
+  }
+  for (const leftover of byKey.values()) merged.push(leftover);
+  return merged;
+}
+
 function normalizeHud(raw: unknown): HudDoc {
   const doc = orderCatalogData('hud', raw) as HudDoc;
+  const slots = Array.isArray(doc.assetSlots)
+    ? doc.assetSlots
+    : [...DEFAULT_HUD.assetSlots];
   return {
     appVersion: doc.appVersion ?? DEFAULT_HUD.appVersion,
     equipmentSlots: Array.isArray(doc.equipmentSlots) ? doc.equipmentSlots : [],
-    assetSlots: Array.isArray(doc.assetSlots) ? doc.assetSlots : [...DEFAULT_HUD.assetSlots],
+    assetSlots: mergeDefaultHudAssetSlots(slots as Row[]),
   };
 }
 

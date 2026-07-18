@@ -80,7 +80,18 @@ export const DEFAULT_HUD = {
   assetSlots: [
     { key: 'ui.button', labelJa: 'ボタン', icon: '', noteJa: 'タイトル／選択肢ボタン背景' },
     { key: 'ui.panel', labelJa: 'パネル', icon: '', noteJa: 'ステータスチップ・枠パネル' },
-    { key: 'ui.background', labelJa: 'プレイ背景', icon: '', noteJa: '未設定時は既存 backgrounds' },
+    {
+      key: 'ui.homeBackground',
+      labelJa: 'ホーム背景',
+      icon: '',
+      noteJa: 'タイトル／ホーム画面の背景。未設定時は単色',
+    },
+    {
+      key: 'ui.background',
+      labelJa: 'プレイ背景',
+      icon: '',
+      noteJa: '未設定時は既存 backgrounds',
+    },
     {
       key: 'tile.sword',
       labelJa: '兵器タイル',
