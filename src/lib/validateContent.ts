@@ -40,7 +40,6 @@ export function validateCatalogBundle(
 
   const checkDup = (rows: Record<string, unknown>[], catalog: string) => {
     const seenId = new Set<string>();
-    const seenCode = new Set<string>();
     for (const row of rows) {
       const id = String(row.id ?? '');
       if (!id) {
@@ -51,25 +50,6 @@ export function validateCatalogBundle(
         issues.push({ level: 'error', catalog, id, message: 'id が重複しています' });
       }
       seenId.add(id);
-
-      const code = String(row.code ?? '').trim();
-      if (!code) {
-        issues.push({
-          level: 'warning',
-          catalog,
-          id,
-          message: 'code（通称）が未設定です',
-        });
-      } else if (seenCode.has(code)) {
-        issues.push({
-          level: 'error',
-          catalog,
-          id,
-          message: `code が重複しています: ${code}`,
-        });
-      } else {
-        seenCode.add(code);
-      }
     }
   };
 

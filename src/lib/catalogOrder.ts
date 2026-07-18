@@ -1,14 +1,19 @@
-/** Canonical key order for catalog JSON (Firestore does not preserve map order). */
+/** Canonical key order and form layouts for catalog editors. */
+
+export type FormBlock =
+  | { kind: 'asset' } // portrait / icon を先頭に
+  | { kind: 'row'; keys: string[]; cols: number }
+  | { kind: 'growth' } // growth.hp/atk/dex を 3 列
+  | { kind: 'bonuses' } // 装備補正を 3 列
+  | { kind: 'field'; key: string };
 
 const ORDERS: Record<string, string[]> = {
   characters: [
     'id',
-    'code',
     'nameJa',
-    'archetype',
+    'descriptionJa',
     'maxHp',
-    'str',
-    'int',
+    'atk',
     'dex',
     'maxArmor',
     'growth',
@@ -18,67 +23,55 @@ const ORDERS: Record<string, string[]> = {
   ],
   enemies: [
     'id',
-    'code',
     'nameJa',
     'maxHp',
-    'str',
-    'int',
-    'dex',
+    'atk',
     'behaviorId',
     'attackInterval',
     'icon',
     'spawnTurnStart',
     'spawnTurnEnd',
-    'minMatchSize',
   ],
   bosses: [
     'id',
-    'code',
     'nameJa',
     'maxHp',
-    'str',
-    'int',
-    'dex',
+    'atk',
     'behaviorId',
     'attackInterval',
     'icon',
     'isBoss',
-    'minMatchSize',
     'spawnTurn',
   ],
   skills: [
     'id',
-    'code',
     'nameJa',
+    'exclusiveTo',
+    'descriptionJa',
     'scaling',
     'baseCooldown',
     'maxLevel',
     'effectIds',
-    'exclusiveTo',
-    'descriptionJa',
     'icon',
   ],
   equipment: [
     'id',
-    'code',
     'nameJa',
     'slot',
     'descriptionJa',
-    'strBonus',
-    'intBonus',
+    'atkBonus',
     'dexBonus',
-    'attackBonus',
     'defenseBonus',
     'maxHpBonus',
     'maxArmorBonus',
     'shieldHealBonus',
     'potionHealBonus',
-    'rarity',
+    'spawnTurn',
     'icon',
   ],
   effects: [
     'id',
-    'code',
+    'nameJa',
     'type',
     'descriptionJa',
     'baseAmount',
@@ -88,11 +81,82 @@ const ORDERS: Record<string, string[]> = {
     'healOnKill',
     'hpThreshold',
   ],
-  behaviors: ['id', 'code', 'nameJa', 'descriptionJa'],
-  audio_cue: ['id', 'code', 'kind', 'loop', 'trigger', 'noteJa', 'file'],
+  behaviors: ['id', 'nameJa', 'logic', 'descriptionJa'],
+  audio_cue: ['id', 'kind', 'loop', 'trigger', 'noteJa', 'file'],
   hud_slot: ['slot', 'labelJa', 'icon'],
-  growth: ['hp', 'str', 'int', 'dex'],
+  hud_asset: ['key', 'labelJa', 'icon', 'useEquippedWeapon', 'noteJa'],
+  growth: ['hp', 'atk', 'dex'],
 };
+
+/** フォームのブロック配置（キーはこの順で消費）。 */
+export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
+  characters: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
+    { kind: 'field', key: 'descriptionJa' },
+    { kind: 'row', keys: ['maxHp', 'atk', 'dex'], cols: 3 },
+    { kind: 'field', key: 'maxArmor' },
+    { kind: 'growth' },
+    { kind: 'field', key: 'exclusiveSkillIds' },
+    { kind: 'field', key: 'starterEquipmentIds' },
+  ],
+  enemies: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
+    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId'], cols: 3 },
+    { kind: 'field', key: 'attackInterval' },
+    { kind: 'row', keys: ['spawnTurnStart', 'spawnTurnEnd'], cols: 2 },
+  ],
+  bosses: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
+    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId'], cols: 3 },
+    { kind: 'row', keys: ['attackInterval', 'spawnTurn'], cols: 2 },
+    { kind: 'field', key: 'isBoss' },
+  ],
+  skills: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['id', 'nameJa', 'exclusiveTo'], cols: 3 },
+    { kind: 'field', key: 'descriptionJa' },
+    { kind: 'row', keys: ['scaling', 'baseCooldown', 'maxLevel'], cols: 3 },
+    { kind: 'field', key: 'effectIds' },
+  ],
+  equipment: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['id', 'nameJa', 'slot'], cols: 3 },
+    { kind: 'field', key: 'descriptionJa' },
+    { kind: 'bonuses' },
+    { kind: 'field', key: 'spawnTurn' },
+  ],
+  effects: [
+    { kind: 'row', keys: ['id', 'nameJa', 'type'], cols: 3 },
+    { kind: 'field', key: 'descriptionJa' },
+    { kind: 'row', keys: ['baseAmount', 'perLevel', 'scaling'], cols: 3 },
+    { kind: 'row', keys: ['multiplier', 'healOnKill', 'hpThreshold'], cols: 3 },
+  ],
+  behaviors: [
+    { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
+    { kind: 'field', key: 'descriptionJa' },
+    { kind: 'field', key: 'logic' },
+  ],
+  hud: [
+    { kind: 'asset' },
+    { kind: 'row', keys: ['key', 'labelJa'], cols: 2 },
+    { kind: 'field', key: 'noteJa' },
+    { kind: 'field', key: 'useEquippedWeapon' },
+    { kind: 'row', keys: ['slot', 'labelJa'], cols: 2 },
+  ],
+};
+
+const EQUIP_BONUS_KEYS = [
+  'atkBonus',
+  'dexBonus',
+  'defenseBonus',
+  'maxHpBonus',
+  'maxArmorBonus',
+  'shieldHealBonus',
+  'potionHealBonus',
+] as const;
 
 const HUD_SLOT_ORDER = ['Weapon', 'Armor', 'Accessory'];
 
@@ -152,6 +216,7 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
     const doc = (data && typeof data === 'object' ? data : {}) as {
       appVersion?: string;
       equipmentSlots?: unknown[];
+      assetSlots?: unknown[];
     };
     const slots = Array.isArray(doc.equipmentSlots)
       ? doc.equipmentSlots
@@ -159,7 +224,7 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
             (r): r is Record<string, unknown> =>
               !!r && typeof r === 'object' && !Array.isArray(r),
           )
-          .map((r) => orderRow(r, 'hud_slot'))
+          .map((r) => orderRow({ ...r, kind: 'equipment' }, 'hud_slot'))
       : [];
     slots.sort((a, b) => {
       const sa = String(a.slot ?? '');
@@ -168,9 +233,18 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
       const ib = HUD_SLOT_ORDER.indexOf(sb);
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || sa.localeCompare(sb);
     });
+    const assets = Array.isArray(doc.assetSlots)
+      ? doc.assetSlots
+          .filter(
+            (r): r is Record<string, unknown> =>
+              !!r && typeof r === 'object' && !Array.isArray(r),
+          )
+          .map((r) => orderRow({ ...r, kind: 'asset' }, 'hud_asset'))
+      : [];
     return {
       appVersion: String(doc.appVersion ?? '1.0.0'),
-      equipmentSlots: slots,
+      equipmentSlots: slots.map(({ kind: _k, ...rest }) => rest),
+      assetSlots: assets.map(({ kind: _k, ...rest }) => rest),
     };
   }
 
@@ -187,9 +261,14 @@ export function stringifyCatalog(catalogId: string, data: unknown): string {
 
 /** Stable field order for form editors (known keys first, then leftovers). */
 export function keysForRow(catalogId: string, row: Record<string, unknown>): string[] {
-  const kind = catalogId === 'audio' ? 'audio_cue' : catalogId === 'hud' ? 'hud_slot' : catalogId;
+  let kind =
+    catalogId === 'audio' ? 'audio_cue' : catalogId === 'hud' ? 'hud_slot' : catalogId;
+  if (catalogId === 'hud') {
+    kind = row.kind === 'asset' || row.key ? 'hud_asset' : 'hud_slot';
+  }
   const preferred = ORDERS[kind] ?? [];
   const present = new Set(Object.keys(row));
+  present.delete('kind');
   const ordered: string[] = [];
   for (const k of preferred) {
     if (present.has(k)) {
@@ -199,4 +278,12 @@ export function keysForRow(catalogId: string, row: Record<string, unknown>): str
   }
   for (const k of present) ordered.push(k);
   return ordered;
+}
+
+export function equipBonusKeys(): readonly string[] {
+  return EQUIP_BONUS_KEYS;
+}
+
+export function formLayoutFor(catalogId: string): FormBlock[] | null {
+  return FORM_LAYOUTS[catalogId] ?? null;
 }

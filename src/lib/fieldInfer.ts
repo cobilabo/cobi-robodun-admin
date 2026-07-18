@@ -49,8 +49,51 @@ export function refCatalogHint(key: string): string | null {
   return null;
 }
 
+const CAPTIONS: Record<string, string> = {
+  id: 'id',
+  nameJa: '名前',
+  descriptionJa: '説明',
+  maxHp: 'HP',
+  atk: 'ATK',
+  dex: 'DEX',
+  maxArmor: 'バリア',
+  growth: '成長',
+  exclusiveSkillIds: '専用スキル',
+  starterEquipmentIds: '初期装備',
+  portrait: '立ち絵',
+  icon: 'アイコン',
+  behaviorId: '行動',
+  attackInterval: '攻撃間隔',
+  spawnTurnStart: '出現開始',
+  spawnTurnEnd: '出現終了',
+  spawnTurn: '出現ターン',
+  isBoss: 'ボス',
+  scaling: 'スケール',
+  baseCooldown: 'CD',
+  maxLevel: '最大Lv',
+  effectIds: '効果',
+  exclusiveTo: '専用キャラ',
+  slot: '部位',
+  atkBonus: 'ATK+',
+  dexBonus: 'DEX+',
+  defenseBonus: 'DEF+',
+  maxHpBonus: 'HP+',
+  maxArmorBonus: 'バリア+',
+  shieldHealBonus: '修理+',
+  potionHealBonus: '回復+',
+  type: 'type',
+  baseAmount: '基本値',
+  perLevel: 'Lvごと',
+  multiplier: '倍率',
+  healOnKill: '撃破回復',
+  hpThreshold: 'HP閾値',
+  logic: 'ロジック',
+  labelJa: '表示名',
+};
+
 /** Human-readable field caption including referenced catalog. */
 export function fieldCaption(key: string): string {
+  if (CAPTIONS[key]) return CAPTIONS[key];
   const hint = refCatalogHint(key);
   if (!hint) return key;
   const names: Record<string, string> = {
@@ -73,125 +116,82 @@ export function fieldNote(key: string, catalogId?: string): string | null {
   switch (key) {
     case 'id':
       return '読み取り専用';
-    case 'code':
-      return catalogId === 'behaviors'
-        ? 'ロジック名（act_*）。必須'
-        : '通称（旧名称）。参照キーではない';
     case 'nameJa':
-      return '日本語の表示名';
+      return '表示名';
     case 'descriptionJa':
-      return '説明文';
+      return catalogId === 'characters'
+        ? 'キャラ選択画面に表示'
+        : '説明文';
     case 'labelJa':
       return 'HUD 上の表示名';
-    case 'archetype':
-      return '成長傾向（STR / INT / DEX）';
     case 'maxHp':
       return '最大 HP';
-    case 'str':
-      return '攻撃寄りステータス';
-    case 'int':
-      return '術寄りステータス';
+    case 'atk':
+      return '攻撃';
     case 'dex':
-      return '速度寄りステータス';
+      return '機敏';
     case 'maxArmor':
       return '最大バリア';
     case 'growth':
-      return 'レベルアップ時の上昇';
+      return 'レベルアップ時の自動成長';
     case 'exclusiveSkillIds':
-      return '専用スキル（id 参照）';
+      return 'id 参照';
     case 'starterEquipmentIds':
-      return '初期装備（id 参照）';
+      return 'id 参照';
     case 'portrait':
-      return '立ち絵・顔画像';
+      return '立ち絵';
     case 'icon':
-      return catalogId === 'hud' ? 'スロットアイコン' : '一覧・盤面用アイコン';
+      return catalogId === 'hud' ? '空スロット用アイコン' : 'アイコン';
     case 'behaviorId':
-      return '行動の管理番号（id）';
+      return '行動 id';
     case 'attackInterval':
-      return '攻撃間隔（ターン）';
+      return 'ターン';
     case 'spawnTurnStart':
-      return '出現開始ターン';
     case 'spawnTurnEnd':
-      return '出現終了ターン';
+      return '出現期間';
     case 'spawnTurn':
-      return '出現ターン';
-    case 'minMatchSize':
-      return '倒すのに必要なマッチ数';
+      return catalogId === 'equipment'
+        ? 'ショップに出始めるターン'
+        : '出現ターン';
     case 'isBoss':
-      return 'ボス扱いフラグ';
+      return 'ボス扱い';
     case 'scaling':
-      return 'ステータス連動（str / int / dex / none）';
+      return 'ATK / DEX / none';
     case 'baseCooldown':
-      return '基本クールダウン';
+      return '基本 CD';
     case 'maxLevel':
-      return 'スキル最大レベル';
+      return '最大レベル';
     case 'effectIds':
-      return '発動効果（id 参照）';
+      return '効果 id';
     case 'exclusiveTo':
-      return '専用キャラ（id）。共通は空';
+      return '空なら共通';
     case 'slot':
       return catalogId === 'hud'
-        ? '装備スロット種別'
-        : '装備部位（Weapon / Armor / Accessory）';
-    case 'rarity':
-      return 'レア度（数値）';
-    case 'strBonus':
-      return 'STR 補正';
-    case 'intBonus':
-      return 'INT 補正';
+        ? 'スロット種別'
+        : 'Weapon / Armor / Accessory';
+    case 'atkBonus':
     case 'dexBonus':
-      return 'DEX 補正';
-    case 'attackBonus':
-      return '攻撃力補正';
     case 'defenseBonus':
-      return '防御補正';
     case 'maxHpBonus':
-      return '最大 HP 補正';
     case 'maxArmorBonus':
-      return '最大バリア補正';
     case 'shieldHealBonus':
-      return 'バリア回復補正';
     case 'potionHealBonus':
-      return '回復量補正';
+      return '補正';
     case 'type':
-      return '効果タイプ（プログラム側の識別子）';
+      return 'プログラム識別子';
     case 'baseAmount':
       return '基本値';
-    case 'perLevel':
-      return 'レベルごとの増加';
-    case 'multiplier':
-      return '倍率';
-    case 'healOnKill':
-      return '撃破時回復';
-    case 'hpThreshold':
-      return 'HP 閾値（割合など）';
-    case 'file':
-      return '音声ファイルパス';
-    case 'kind':
-      return 'bgm / se / ui';
-    case 'loop':
-      return 'ループ再生';
-    case 'trigger':
-      return '再生タイミング';
-    case 'noteJa':
-      return '管理用メモ';
+    case 'logic':
+      return 'act_*（プログラム用）';
     default:
-      break;
+      return null;
   }
-
-  // 参照系の汎用メモ（個別定義が無い場合）
-  if (refCatalogHint(key)) {
-    if (key.toLowerCase().endsWith('ids')) return '複数の管理番号（id）';
-    if (key.toLowerCase().endsWith('id')) return '管理番号（id）で参照';
-  }
-  return null;
 }
 
+/** Middle-list label: id — name (single line). */
 export function rowLabel(row: Record<string, unknown>): string {
   const id = String(row.id ?? '');
-  const name = String(row.nameJa ?? row.name ?? row.descriptionJa ?? '');
-  const code = String(row.code ?? '').trim();
-  if (!id && !name) return '(no id)';
-  const mid = [name, code ? `(${code})` : ''].filter(Boolean).join(' ');
-  return mid ? `${id} — ${mid}` : id;
+  const name = String(row.nameJa ?? '');
+  if (id && name) return `${id} — ${name}`;
+  return id || name || '(empty)';
 }

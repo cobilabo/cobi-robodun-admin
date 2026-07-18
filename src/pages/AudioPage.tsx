@@ -4,6 +4,8 @@ import { AudioPicker } from '../components/AudioPicker';
 import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
 import { collectAudioUploads } from '../lib/audioUpload';
 
+import { PageDesc, UiButton } from '../components/ui';
+
 type Cue = {
   id: string;
   code?: string;
@@ -156,13 +158,10 @@ export function AudioPage() {
   return (
     <div className="space-y-4">
       <header className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">音声割当</h2>
-          <p className="text-sm text-[var(--muted)]">
-            キューに音声ファイルを割り当てます。ファイルは assets/audio/ に保存。{status}
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
+        <PageDesc>
+          キューに音声ファイルを割り当てます。ファイルは assets/audio/ に保存。{status}
+        </PageDesc>
+        <div className="flex gap-1.5 flex-wrap">
           <input
             ref={uploadRef}
             type="file"
@@ -174,28 +173,16 @@ export function AudioPage() {
               e.target.value = '';
             }}
           />
-          <button
-            type="button"
+          <UiButton
             disabled={busy}
             onClick={() => uploadRef.current?.click()}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
           >
             素材を追加
-          </button>
-          <button
-            type="button"
-            onClick={seed}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-          >
-            Must テンプレ
-          </button>
-          <button
-            type="button"
-            onClick={save}
-            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)]"
-          >
+          </UiButton>
+          <UiButton onClick={seed}>Must テンプレ</UiButton>
+          <UiButton variant="accent" onClick={save}>
             保存
-          </button>
+          </UiButton>
         </div>
       </header>
 

@@ -16,6 +16,7 @@
   --checker-a: #1a2230;
   --checker-b: #121820;
   --bounds: #ff5cad;
+  --control-h: 2rem;
   font-family: 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
 }
 
@@ -46,6 +47,17 @@ select,
 textarea {
   background: var(--input-bg);
   border-color: var(--line);
+}
+
+/* Ui* コンポーネント用の統一高さ */
+.ui-control {
+  box-sizing: border-box;
+  height: var(--control-h);
+  min-height: var(--control-h);
+  font-size: 11px;
+  line-height: 1.25;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .checkerboard {

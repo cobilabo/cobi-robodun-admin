@@ -1,21 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, type Issue } from '../lib/api';
-import {
-  fieldCaption,
-  fieldNote,
-  inferFieldKind,
-  refCatalogHint,
-  rowLabel,
-} from '../lib/fieldInfer';
+import { rowLabel } from '../lib/fieldInfer';
 import { AssetPicker } from '../components/AssetPicker';
-import { AlphaBoundsPreview } from '../components/AlphaBoundsPreview';
+import { CatalogFormBody } from '../components/CatalogFormBody';
 import { JsonCodeEditor } from '../components/JsonCodeEditor';
 import { LazyAssetThumb } from '../components/LazyAssetThumb';
-import { ensureAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
+import { ensureAssetUrl, forgetAssetUrl, peekAssetUrl } from '../lib/assetUrlCache';
 import {
-  labelForOption,
   rowsToRefOptions,
+  countAssetRefs,
   type RefOption,
 } from '../lib/catalogRefs';
 import {
@@ -23,8 +17,9 @@ import {
   orderCatalogData,
   stringifyCatalog,
 } from '../lib/catalogOrder';
-import { DEFAULT_HUD } from '../lib/catalogRegistry';
+import { CATALOG_IDS as ALL_CATALOG_IDS, DEFAULT_HUD } from '../lib/catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
+import { PageDesc, MetaChip, UiButton, equipSlotLabelJa } from '../components/ui';
 
 const CATALOGS = [
   { id: 'characters', label: 'キャラ' },
@@ -39,13 +34,59 @@ const CATALOGS = [
 
 type Row = Record<string, unknown>;
 type EditMode = 'form' | 'json';
-type HudDoc = { appVersion: string; equipmentSlots: Row[] };
+type HudDoc = {
+  appVersion: string;
+  equipmentSlots: Row[];
+  assetSlots: Row[];
+};
 
 function normalizeHud(raw: unknown): HudDoc {
-  return orderCatalogData('hud', raw) as HudDoc;
+  const doc = orderCatalogData('hud', raw) as HudDoc;
+  return {
+    appVersion: doc.appVersion ?? DEFAULT_HUD.appVersion,
+    equipmentSlots: Array.isArray(doc.equipmentSlots) ? doc.equipmentSlots : [],
+    assetSlots: Array.isArray(doc.assetSlots) ? doc.assetSlots : [...DEFAULT_HUD.assetSlots],
+  };
+}
+
+function flattenHudRows(doc: HudDoc): Row[] {
+  return [
+    ...doc.equipmentSlots.map((s) => ({ ...s, kind: 'equipment' })),
+    ...doc.assetSlots.map((s) => ({ ...s, kind: 'asset' })),
+  ];
+}
+
+function splitHudRows(rows: Row[]): { equipmentSlots: Row[]; assetSlots: Row[] } {
+  const equipmentSlots: Row[] = [];
+  const assetSlots: Row[] = [];
+  for (const r of rows) {
+    if (r.kind === 'asset' || (!r.slot && r.key)) {
+      const { kind: _k, ...rest } = r;
+      assetSlots.push({
+        key: String(rest.key ?? ''),
+        labelJa: String(rest.labelJa ?? ''),
+        icon: String(rest.icon ?? ''),
+        noteJa: String(rest.noteJa ?? ''),
+        ...(rest.useEquippedWeapon ? { useEquippedWeapon: true } : {}),
+      });
+    } else {
+      const { kind: _k, ...rest } = r;
+      equipmentSlots.push({
+        slot: String(rest.slot ?? 'Weapon'),
+        labelJa: String(rest.labelJa ?? ''),
+        icon: String(rest.icon ?? ''),
+      });
+    }
+  }
+  return { equipmentSlots, assetSlots };
 }
 
 function hudSlotLabel(row: Row): string {
+  if (row.kind === 'asset' || row.key) {
+    const key = String(row.key ?? '');
+    const label = String(row.labelJa ?? '');
+    return label ? `${key} — ${label}` : key || '(asset)';
+  }
   const slot = String(row.slot ?? '');
   const label = String(row.labelJa ?? '');
   return label ? `${slot} — ${label}` : slot || '(empty)';
@@ -55,42 +96,23 @@ function rowImagePath(row: Row): string {
   return String(row.icon || row.portrait || '').trim();
 }
 
-function FieldCaption({
-  fieldKey,
-  catalogId,
-  suffix = '',
-}: {
-  fieldKey: string;
-  catalogId: string;
-  suffix?: string;
-}) {
-  const note = fieldNote(fieldKey, catalogId);
-  return (
-    <span className="text-[var(--muted)]">
-      {fieldCaption(fieldKey)}
-      {suffix}
-      {note ? (
-        <span className="ml-2 text-[10px] opacity-80">{note}</span>
-      ) : null}
-    </span>
-  );
-}
-
-function toHudPayload(appVersion: string, slots: Row[]): HudDoc {
+function toHudPayload(appVersion: string, rows: Row[]): HudDoc {
+  const { equipmentSlots, assetSlots } = splitHudRows(rows);
   return orderCatalogData('hud', {
     appVersion,
-    equipmentSlots: slots.map((s) => ({
-      slot: String(s.slot ?? ''),
-      labelJa: String(s.labelJa ?? ''),
-      icon: String(s.icon ?? ''),
-    })),
+    equipmentSlots,
+    assetSlots,
   }) as HudDoc;
 }
 
 function formatEditorJson(catalogId: string, rows: Row[], appVersion: string): string {
   if (catalogId === 'hud') {
-    // JSON モードはスロット配列のみ（appVersion は非表示・保存時に維持）
-    return `${JSON.stringify(toHudPayload(appVersion, rows).equipmentSlots, null, 2)}\n`;
+    const doc = toHudPayload(appVersion, rows);
+    return `${JSON.stringify(
+      { equipmentSlots: doc.equipmentSlots, assetSlots: doc.assetSlots },
+      null,
+      2,
+    )}\n`;
   }
   return stringifyCatalog(catalogId, rows);
 }
@@ -120,14 +142,17 @@ export function CatalogEditor() {
     const r = await api.getCatalog(name);
     if (name === 'hud') {
       const doc = normalizeHud(r.data);
+      const flat = flattenHudRows(doc);
       setAppVersion(doc.appVersion);
-      setRows(doc.equipmentSlots);
+      setRows(flat);
       setSelectedIdx(0);
       setDirty(false);
-      setJsonText(formatEditorJson('hud', doc.equipmentSlots, doc.appVersion));
+      setJsonText(formatEditorJson('hud', flat, doc.appVersion));
       setJsonParseError('');
       setIssues([]);
-      setStatus(`hud: ${doc.equipmentSlots.length} スロット`);
+      setStatus(
+        `hud: 装備${doc.equipmentSlots.length} / 見た目${doc.assetSlots.length}`,
+      );
       return;
     }
     const data = orderCatalogData(name, r.data) as Row[];
@@ -206,11 +231,6 @@ export function CatalogEditor() {
     };
   }, [previewPath]);
 
-  const keys = useMemo(() => {
-    if (!selected) return [] as string[];
-    return keysForRow(catalogId, selected);
-  }, [selected, catalogId]);
-
   const updateField = (key: string, value: unknown) => {
     setRows((prev) => {
       const next = [...prev];
@@ -224,15 +244,73 @@ export function CatalogEditor() {
     setDirty(true);
   };
 
+  /** 差し替えで参照ゼロになった旧プロジェクト画像を削除 */
+  const applyAssetPick = async (fieldKey: string, projectPath: string) => {
+    const oldPath = String(selected?.[fieldKey] ?? '')
+      .replace(/\\/g, '/')
+      .trim();
+    const nextPath = projectPath.replace(/\\/g, '/').trim();
+    updateField(fieldKey, nextPath);
+    setPickerKey(null);
+    setStatus(`取込完了: ${nextPath}`);
+
+    if (!oldPath || oldPath === nextPath) return;
+    if (!oldPath.startsWith('UI/') && !oldPath.startsWith('audio/')) return;
+
+    try {
+      const nextRows = rows.map((r, i) =>
+        i === selectedIdx ? { ...r, [fieldKey]: nextPath } : r,
+      );
+      const draft =
+        catalogId === 'hud'
+          ? toHudPayload(appVersion, nextRows)
+          : nextRows;
+
+      const bundle: Record<string, unknown> = {};
+      await Promise.all(
+        ALL_CATALOG_IDS.map(async (id) => {
+          if (id === catalogId) {
+            bundle[id] = draft;
+            return;
+          }
+          try {
+            bundle[id] = (await api.getCatalog(id)).data;
+          } catch {
+            bundle[id] = id === 'hud' || id === 'audio' ? {} : [];
+          }
+        }),
+      );
+
+      const refs = countAssetRefs(bundle);
+      if ((refs.get(oldPath) ?? 0) > 0) return;
+
+      await api.deleteAsset(oldPath, 'project');
+      forgetAssetUrl(oldPath, 'project');
+      setStatus(`取込完了: ${nextPath}（旧画像を削除: ${oldPath}）`);
+    } catch (e) {
+      setStatus(
+        `取込は完了（${nextPath}）。旧画像削除スキップ: ${String((e as Error).message || e)}`,
+      );
+    }
+  };
+
   const addRow = () => {
     if (isHud) {
-      const template: Row = selected
+      const asAsset = selected?.kind === 'asset' || Boolean(selected?.key);
+      const template: Row = asAsset
         ? {
-            slot: String(selected.slot ?? 'Weapon'),
-            labelJa: '',
+            kind: 'asset',
+            key: `ui.custom_${Date.now().toString(36)}`,
+            labelJa: '新規',
             icon: '',
+            noteJa: '',
           }
-        : { slot: 'Weapon', labelJa: '新規', icon: '' };
+        : {
+            kind: 'equipment',
+            slot: String(selected?.slot ?? 'Weapon'),
+            labelJa: '新規',
+            icon: '',
+          };
       setRows((prev) => [...prev, template]);
       setSelectedIdx(rows.length);
       setDirty(true);
@@ -263,7 +341,7 @@ export function CatalogEditor() {
       ? Object.fromEntries(
           Object.entries(selected).map(([k, v]) => {
             if (k === 'id') return [k, nextId];
-            if (k === 'code') return [k, `new_${Date.now().toString(36)}`];
+            if (k === 'logic') return [k, 'act_normal'];
             if (typeof v === 'string') return [k, ''];
             if (typeof v === 'number') return [k, 0];
             if (Array.isArray(v)) return [k, []];
@@ -271,7 +349,7 @@ export function CatalogEditor() {
             return [k, v];
           }),
         )
-      : { id: nextId, code: `new_${Date.now().toString(36)}`, nameJa: '新規' };
+      : { id: nextId, nameJa: '新規' };
     setRows((prev) => [...prev, template]);
     setSelectedIdx(rows.length);
     setDirty(true);
@@ -292,28 +370,24 @@ export function CatalogEditor() {
     try {
       const parsed = JSON.parse(text.replace(/^\uFEFF/, '')) as unknown;
       if (isHud) {
-        // スロット配列、または旧形式の { equipmentSlots } オブジェクト
-        let slots: unknown;
+        let flat: Row[] = [];
         if (Array.isArray(parsed)) {
-          slots = parsed;
+          flat = parsed as Row[];
         } else if (parsed && typeof parsed === 'object') {
-          slots = (parsed as HudDoc).equipmentSlots;
+          const doc = normalizeHud(parsed);
+          flat = flattenHudRows(doc);
         } else {
-          return { ok: false, error: 'ルートは JSON 配列である必要があります' };
+          return { ok: false, error: 'ルートはオブジェクトまたは配列である必要があります' };
         }
-        if (!Array.isArray(slots)) {
-          return { ok: false, error: 'equipmentSlots は配列である必要があります' };
-        }
-        for (let i = 0; i < slots.length; i++) {
-          if (!slots[i] || typeof slots[i] !== 'object' || Array.isArray(slots[i])) {
+        for (let i = 0; i < flat.length; i++) {
+          if (!flat[i] || typeof flat[i] !== 'object' || Array.isArray(flat[i])) {
             return {
               ok: false,
               error: `要素[${i}] はオブジェクトである必要があります`,
             };
           }
         }
-        const doc = toHudPayload(appVersion, slots as Row[]);
-        return { ok: true, data: doc.equipmentSlots };
+        return { ok: true, data: flat };
       }
       if (!Array.isArray(parsed)) {
         return { ok: false, error: 'ルートは JSON 配列である必要があります' };
@@ -449,8 +523,9 @@ export function CatalogEditor() {
       setIssues(related);
       setDirty(false);
       const savedRows = isHud
-        ? (data as HudDoc).equipmentSlots
+        ? flattenHudRows(data as HudDoc)
         : (data as Row[]);
+      if (isHud) setRows(savedRows);
       setJsonText(formatEditorJson(catalogId, savedRows, appVersion));
       const errors = related.filter((i) => i.level === 'error').length;
       const warns = related.filter((i) => i.level === 'warning').length;
@@ -478,35 +553,32 @@ export function CatalogEditor() {
           key={c.id}
           type="button"
           onClick={() => switchCatalog(c.id)}
-          className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] ${
+          className={`w-full text-left px-2.5 py-1.5 text-[11px] border-b border-[var(--line)] ${
             catalogId === c.id
               ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
               : 'hover:bg-[var(--hover)]'
           }`}
         >
           {c.label}
-          <span className="block text-[10px] text-[var(--muted)]">{c.id}.json</span>
+          <span className="block text-[9px] text-[var(--muted)]">{c.id}.json</span>
         </button>
       ))}
     </aside>
   );
 
   return (
-    <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
-      <header className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">カタログ編集</h2>
-          <p className="text-sm text-[var(--muted)]">
-            {editMode === 'form' ? 'フォーム編集' : 'JSON 直接編集'}。{status}
-            {dirty ? ' ・未保存の変更あり' : ''}
-          </p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <div className="flex rounded border border-[var(--line)] overflow-hidden">
+    <div className="h-[calc(100svh-3rem)] flex flex-col gap-2 min-h-0 text-xs">
+      <header className="flex items-end justify-between gap-2 flex-wrap">
+        <PageDesc>
+          {editMode === 'form' ? 'フォーム編集' : 'JSON 直接編集'}。{status}
+          {dirty ? ' ・未保存の変更あり' : ''}
+        </PageDesc>
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <div className="flex h-8 rounded border border-[var(--line)] overflow-hidden">
             <button
               type="button"
               onClick={() => switchEditMode('form')}
-              className={`px-3 py-1.5 text-sm ${
+              className={`h-full px-2.5 text-[11px] ${
                 editMode === 'form'
                   ? 'bg-[var(--accent)] text-[var(--bg)]'
                   : 'bg-[var(--input-bg)]'
@@ -517,7 +589,7 @@ export function CatalogEditor() {
             <button
               type="button"
               onClick={() => switchEditMode('json')}
-              className={`px-3 py-1.5 text-sm border-l border-[var(--line)] ${
+              className={`h-full px-2.5 text-[11px] border-l border-[var(--line)] ${
                 editMode === 'json'
                   ? 'bg-[var(--accent)] text-[var(--bg)]'
                   : 'bg-[var(--input-bg)]'
@@ -528,44 +600,22 @@ export function CatalogEditor() {
           </div>
           {editMode === 'form' && (
             <>
-              <button
-                type="button"
-                onClick={addRow}
-                className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-              >
-                行を追加
-              </button>
-              <button
-                type="button"
-                onClick={removeRow}
-                className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-              >
-                行を削除
-              </button>
+              <UiButton onClick={addRow}>行を追加</UiButton>
+              <UiButton onClick={removeRow}>行を削除</UiButton>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => void validateOnly()}
-            className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)]"
-          >
-            検証
-          </button>
-          <button
-            type="button"
-            onClick={() => void save()}
-            className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)]"
-          >
+          <UiButton onClick={() => void validateOnly()}>検証</UiButton>
+          <UiButton variant="accent" onClick={() => void save()}>
             保存
-          </button>
+          </UiButton>
         </div>
       </header>
 
       <div
-        className={`flex-1 min-h-0 grid gap-3 ${
+        className={`flex-1 min-h-0 grid gap-2 ${
           editMode === 'json'
-            ? 'grid-cols-[180px_1fr]'
-            : 'grid-cols-[180px_280px_1fr]'
+            ? 'grid-cols-[150px_1fr]'
+            : 'grid-cols-[150px_minmax(360px,28%)_1fr]'
         }`}
       >
         {catalogNav}
@@ -606,15 +656,27 @@ export function CatalogEditor() {
           </section>
         ) : (
           <>
-        <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto">
+        <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto min-w-0">
           {rows.map((row, i) => {
             const imgPath = rowImagePath(row);
+            let meta: string | null = null;
+            if (catalogId === 'skills') {
+              const ex = row.exclusiveTo;
+              if (ex == null || ex === '') meta = '共通';
+              else {
+                const id = String(ex);
+                const hit = idOptions.characters?.find((o) => o.id === id);
+                meta = hit?.name || id;
+              }
+            } else if (catalogId === 'equipment') {
+              meta = equipSlotLabelJa(row.slot);
+            }
             return (
               <button
                 key={`${row.id ?? row.slot}-${i}`}
                 type="button"
                 onClick={() => setSelectedIdx(i)}
-                className={`w-full text-left px-3 py-2 text-sm border-b border-[var(--line)] flex items-center gap-2 ${
+                className={`w-full text-left px-2.5 py-1.5 text-[11px] border-b border-[var(--line)] flex items-center gap-2 ${
                   selectedIdx === i
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--hover)]'
@@ -624,300 +686,41 @@ export function CatalogEditor() {
                   <LazyAssetThumb
                     relativePath={imgPath}
                     source="project"
-                    className="!mb-0 size-7 shrink-0"
+                    className="!mb-0 size-6 shrink-0"
                   />
                 ) : null}
-                <span className="min-w-0 break-all leading-snug">
+                <span className="min-w-0 truncate whitespace-nowrap leading-snug">
                   {isHud ? hudSlotLabel(row) : rowLabel(row)}
                 </span>
+                {meta ? <MetaChip>{meta}</MetaChip> : null}
               </button>
             );
           })}
           {rows.length === 0 && (
-            <p className="p-3 text-sm text-[var(--muted)]">行がありません</p>
+            <p className="p-2.5 text-[11px] text-[var(--muted)]">行がありません</p>
           )}
         </aside>
 
-        <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto p-4">
+        <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto p-3">
           {!selected && (
-            <p className="text-sm text-[var(--muted)]">行を選択してください</p>
+            <p className="text-[11px] text-[var(--muted)]">行を選択してください</p>
           )}
           {selected && (
-            <div className="space-y-3 max-w-2xl">
-              {Boolean(previewPath) && (
-                <div className="mb-4 max-w-md">
-                  <div className="text-sm text-[var(--muted)] mb-2">プレビュー</div>
-                  {previewSrc ? (
-                    <AlphaBoundsPreview
-                      src={previewSrc}
-                      cacheKey={previewPath}
-                      maxSide={320}
-                    />
-                  ) : (
-                    <p className="text-xs text-[var(--muted)]">画像を読み込み中…</p>
-                  )}
-                  <p className="mt-1 text-[10px] font-mono break-all text-[var(--muted)]">
-                    {previewPath}
-                  </p>
-                </div>
-              )}
-              {keys.map((key) => {
-                const value = selected[key];
-                const kind = inferFieldKind(key, value);
-                const hint = refCatalogHint(key);
-                const options = hint ? idOptions[hint] ?? [] : [];
-                const caption = (
-                  <FieldCaption fieldKey={key} catalogId={catalogId} />
-                );
-
-                if (key === 'id') {
-                  return (
-                    <label key={key} className="block text-sm">
-                      {caption}
-                      <input
-                        className="mt-1 w-full rounded border border-dashed border-[var(--line)] px-2 py-1.5 font-mono text-sm bg-[rgba(255,255,255,0.03)] text-[var(--muted)] cursor-default opacity-80"
-                        value={String(value ?? '')}
-                        readOnly
-                        tabIndex={-1}
-                        title="フォームでは編集できません"
-                      />
-                    </label>
-                  );
-                }
-
-                if (kind === 'asset') {
-                  return (
-                    <label key={key} className="block text-sm">
-                      {caption}
-                      <div className="mt-1 flex gap-2">
-                        <input
-                          className="flex-1 rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)]"
-                          value={String(value ?? '')}
-                          onChange={(e) => updateField(key, e.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="px-2 py-1 rounded border border-[var(--line)] text-xs bg-[var(--input-bg)]"
-                          onClick={() => setPickerKey(key)}
-                        >
-                          選択
-                        </button>
-                      </div>
-                    </label>
-                  );
-                }
-
-                if (kind === 'idMulti') {
-                  const arr = Array.isArray(value)
-                    ? value.map(String)
-                    : String(value ?? '')
-                        .split(',')
-                        .map((s) => s.trim())
-                        .filter(Boolean);
-                  const orphan = arr.filter(
-                    (id) => !options.some((o) => o.id === id),
-                  );
-                  return (
-                    <fieldset key={key} className="text-sm">
-                      <legend>{caption}</legend>
-                      {arr.length > 0 && (
-                        <ul className="mt-1 mb-2 space-y-0.5 text-xs">
-                          {arr.map((id) => (
-                            <li
-                              key={id}
-                              className="rounded bg-[var(--input-bg)] px-2 py-1 border border-[var(--line)]"
-                            >
-                              {labelForOption(options, id)}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="mt-1 max-h-48 overflow-auto border border-[var(--line)] rounded p-2 grid grid-cols-1 gap-1">
-                        {options.map((opt) => (
-                          <label
-                            key={opt.id}
-                            className="flex items-start gap-2 text-xs leading-snug"
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 shrink-0"
-                              checked={arr.includes(opt.id)}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...arr, opt.id]
-                                  : arr.filter((x) => x !== opt.id);
-                                updateField(key, next);
-                              }}
-                            />
-                            <span>
-                              <span className="font-mono text-[var(--muted)]">
-                                {opt.id}
-                              </span>
-                              {opt.name ? (
-                                <span className="text-[var(--ink)]">
-                                  {' '}
-                                  — {opt.name}
-                                </span>
-                              ) : null}
-                            </span>
-                          </label>
-                        ))}
-                        {orphan.map((id) => (
-                          <label
-                            key={id}
-                            className="flex items-start gap-2 text-xs text-[var(--warn)]"
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-0.5"
-                              checked
-                              onChange={() =>
-                                updateField(
-                                  key,
-                                  arr.filter((x) => x !== id),
-                                )
-                              }
-                            />
-                            <span>
-                              {id}（参照先に存在しません）
-                            </span>
-                          </label>
-                        ))}
-                        {options.length === 0 && (
-                          <p className="text-[var(--muted)]">選択肢がありません</p>
-                        )}
-                      </div>
-                    </fieldset>
-                  );
-                }
-
-                if (kind === 'idSingle') {
-                  const current = String(value ?? '');
-                  const known = options.some((o) => o.id === current);
-                  return (
-                    <label key={key} className="block text-sm">
-                      {caption}
-                      <select
-                        className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
-                        value={current}
-                        onChange={(e) => updateField(key, e.target.value)}
-                      >
-                        <option value="">（なし）</option>
-                        {options.map((opt) => (
-                          <option key={opt.id} value={opt.id}>
-                            {opt.label}
-                          </option>
-                        ))}
-                        {current && !known ? (
-                          <option value={current}>
-                            {current}（参照先に存在しません）
-                          </option>
-                        ) : null}
-                      </select>
-                      {current && (
-                        <p className="mt-1 text-xs text-[var(--muted)]">
-                          選択中: {labelForOption(options, current)}
-                        </p>
-                      )}
-                    </label>
-                  );
-                }
-
-                if (kind === 'numberMap' && value && typeof value === 'object') {
-                  const obj = value as Record<string, number>;
-                  return (
-                    <fieldset key={key} className="text-sm">
-                      <legend>{caption}</legend>
-                      <div className="mt-1 grid grid-cols-2 gap-2">
-                        {Object.entries(obj).map(([k, v]) => (
-                          <label key={k} className="flex items-center gap-2">
-                            <span className="w-12 text-xs">{k}</span>
-                            <input
-                              type="number"
-                              className="flex-1 rounded border border-[var(--line)] px-2 py-1"
-                              value={v}
-                              onChange={(e) =>
-                                updateField(key, {
-                                  ...obj,
-                                  [k]: Number(e.target.value),
-                                })
-                              }
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                  );
-                }
-
-                if (kind === 'number') {
-                  return (
-                    <label key={key} className="block text-sm">
-                      {caption}
-                      <input
-                        type="number"
-                        className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
-                        value={Number(value ?? 0)}
-                        onChange={(e) => updateField(key, Number(e.target.value))}
-                      />
-                    </label>
-                  );
-                }
-
-                if (kind === 'boolean') {
-                  return (
-                    <label key={key} className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(value)}
-                        onChange={(e) => updateField(key, e.target.checked)}
-                      />
-                      {caption}
-                    </label>
-                  );
-                }
-
-                if (kind === 'json') {
-                  return (
-                    <label key={key} className="block text-sm">
-                      <FieldCaption
-                        fieldKey={key}
-                        catalogId={catalogId}
-                        suffix=" (JSON)"
-                      />
-                      <textarea
-                        className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs h-24"
-                        value={JSON.stringify(value, null, 2)}
-                        onChange={(e) => {
-                          try {
-                            updateField(key, JSON.parse(e.target.value));
-                          } catch {
-                            /* ignore while typing */
-                          }
-                        }}
-                      />
-                    </label>
-                  );
-                }
-
-                return (
-                  <label key={key} className="block text-sm">
-                    {caption}
-                    <input
-                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5"
-                      value={String(value ?? '')}
-                      onChange={(e) => updateField(key, e.target.value)}
-                    />
-                  </label>
-                );
-              })}
-            </div>
+            <CatalogFormBody
+              catalogId={catalogId}
+              selected={selected}
+              previewPath={previewPath}
+              previewSrc={previewSrc}
+              idOptions={idOptions}
+              onUpdate={updateField}
+              onPickAsset={setPickerKey}
+            />
           )}
 
           {issues.length > 0 && (
-            <div className="mt-6 border-t border-[var(--line)] pt-3">
-              <h4 className="text-sm font-medium mb-1">検証（関連）</h4>
-              <ul className="text-xs space-y-1 max-h-32 overflow-auto">
+            <div className="mt-4 border-t border-[var(--line)] pt-2">
+              <h4 className="text-[11px] font-medium mb-1">検証（関連）</h4>
+              <ul className="text-[10px] space-y-0.5 max-h-28 overflow-auto">
                 {issues.slice(0, 20).map((i, idx) => (
                   <li
                     key={idx}
@@ -955,8 +758,8 @@ export function CatalogEditor() {
           }
           onClose={() => setPickerKey(null)}
           onPick={(path) => {
-            updateField(pickerKey, path);
-            setPickerKey(null);
+            if (!pickerKey) return;
+            void applyAssetPick(pickerKey, path);
           }}
         />
       )}

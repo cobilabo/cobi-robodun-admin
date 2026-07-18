@@ -33,6 +33,7 @@ import {
 import { countAssetRefs } from '../lib/catalogRefs';
 import { isCloudMode } from '../lib/mode';
 import { CATALOG_IDS } from '../lib/validateContent';
+import { PageDesc, UiButton, UiInput, UiSelect } from '../components/ui';
 
 const PAGE_SIZE = 48;
 const UPLOAD_CONCURRENCY = 6;
@@ -43,7 +44,7 @@ const MAX_AI_REFS = 4;
 const NEW_CATEGORY_VALUE = '__new__';
 
 export function AssetsPage() {
-  const [tab, setTab] = useState<'project' | 'library'>('project');
+  const [tab, setTab] = useState<'project' | 'library'>('library');
   const [project, setProject] = useState<AssetEntry[]>([]);
   const [library, setLibrary] = useState<AssetEntry[]>([]);
   const [libRoot, setLibRoot] = useState<string | null>(null);
@@ -960,38 +961,25 @@ export function AssetsPage() {
   return (
     <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
       <header className="flex items-end justify-between gap-3 flex-wrap shrink-0">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">アセット</h2>
-          <p className="text-sm text-[var(--muted)]">
-            {tab === 'library'
-              ? '外部素材庫。選択モードで範囲選択可。右パネルで AI 生成・リネーム。一括操作は ⋮ から。'
-              : 'ゲーム正本。選択モードで範囲選択可。右パネルでリネーム。一括操作は ⋮ から。'}
-            {msg ? ` — ${msg}` : ''}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className={`px-3 py-1.5 rounded text-sm border ${
-              tab === 'project'
-                ? 'bg-[var(--accent)] text-[var(--bg)] border-transparent'
-                : 'border-[var(--line)] bg-[var(--input-bg)]'
-            }`}
+        <PageDesc>
+          {tab === 'library'
+            ? '外部素材庫。選択モードで範囲選択可。右パネルで AI 生成・リネーム。一括操作は ⋮ から。'
+            : 'ゲーム正本。選択モードで範囲選択可。右パネルでリネーム。一括操作は ⋮ から。'}
+          {msg ? ` — ${msg}` : ''}
+        </PageDesc>
+        <div className="flex gap-1.5">
+          <UiButton
+            variant={tab === 'project' ? 'accent' : 'default'}
             onClick={() => setTab('project')}
           >
             プロジェクト
-          </button>
-          <button
-            type="button"
-            className={`px-3 py-1.5 rounded text-sm border ${
-              tab === 'library'
-                ? 'bg-[var(--accent)] text-[var(--bg)] border-transparent'
-                : 'border-[var(--line)] bg-[var(--input-bg)]'
-            }`}
+          </UiButton>
+          <UiButton
+            variant={tab === 'library' ? 'accent' : 'default'}
             onClick={() => setTab('library')}
           >
             ライブラリ
-          </button>
+          </UiButton>
         </div>
       </header>
 
@@ -1004,27 +992,22 @@ export function AssetsPage() {
         </p>
       )}
 
-      <div className="flex flex-wrap gap-2 items-center shrink-0">
-        <input
-          className="flex-1 min-w-[160px] rounded border border-[var(--line)] px-3 py-1.5 text-sm bg-[var(--input-bg)]"
+      <div className="flex flex-wrap gap-1.5 items-center shrink-0">
+        <UiInput
+          className="flex-1 min-w-[160px]"
           placeholder="検索..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          className="rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--input-bg)]"
-          value={cat}
-          onChange={(e) => setCat(e.target.value)}
-        >
+        <UiSelect value={cat} onChange={(e) => setCat(e.target.value)}>
           {categories.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>
           ))}
-        </select>
+        </UiSelect>
         {tab === 'project' && (
-          <select
-            className="rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--input-bg)]"
+          <UiSelect
             value={usageFilter}
             onChange={(e) =>
               setUsageFilter(e.target.value as 'all' | 'used' | 'unused')
@@ -1034,51 +1017,40 @@ export function AssetsPage() {
             <option value="all">参照: すべて</option>
             <option value="used">参照あり</option>
             <option value="unused">未割当（{unusedCount}）</option>
-          </select>
+          </UiSelect>
         )}
-        <button
-          type="button"
+        <UiButton
           disabled={busy}
+          variant={selectMode ? 'accent' : 'default'}
           onClick={() => {
             setSelectMode((v) => !v);
             setRangeAnchor(null);
             paintSelectRef.current = false;
           }}
-          className={`px-3 py-1.5 rounded border text-sm disabled:opacity-40 ${
-            selectMode
-              ? 'bg-[var(--accent)] text-[var(--bg)] border-transparent'
-              : 'border-[var(--line)] bg-[var(--input-bg)]'
-          }`}
           title="ON: クリックで選択、Shift+クリックで範囲、ドラッグで連続選択"
         >
           選択モード{selectMode ? ' ON' : ''}
           {checked.size > 0 ? `（${checked.size}）` : ''}
-        </button>
-        <button
-          type="button"
+        </UiButton>
+        <UiButton
           disabled={busy || visibleImages.length === 0}
           onClick={selectAllVisible}
-          className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
         >
           表示中を全選択
-        </button>
-        <button
-          type="button"
+        </UiButton>
+        <UiButton
           disabled={busy || filtered.length === 0}
           onClick={selectAllFiltered}
-          className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
           title="フィルタ後の全件（未表示分含む）"
         >
           絞り込み全選択（{filtered.length}）
-        </button>
-        <button
-          type="button"
+        </UiButton>
+        <UiButton
           disabled={busy || checked.size === 0}
           onClick={clearChecked}
-          className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
         >
           選択解除
-        </button>
+        </UiButton>
         {tab === 'library' && (
           <>
             <input
@@ -1092,33 +1064,30 @@ export function AssetsPage() {
                 e.target.value = '';
               }}
             />
-            <button
-              type="button"
+            <UiButton
               disabled={busy}
               onClick={() => uploadInputRef.current?.click()}
-              className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
               title="画像・ZIPを選択（フォルダは一覧へドロップ）"
             >
               素材を追加
-            </button>
+            </UiButton>
           </>
         )}
 
         <div className="relative" ref={menuRef}>
-          <button
-            type="button"
+          <UiButton
             disabled={busy}
             onClick={() => {
               setMenuOpen((o) => !o);
               setCatMenuOpen(false);
             }}
-            className="px-2 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40 inline-flex items-center justify-center"
             title="選択に対する操作"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
+            className="!px-2"
           >
             <MoreVertical className="w-4 h-4" />
-          </button>
+          </UiButton>
           {menuOpen && (
             <div
               role="menu"

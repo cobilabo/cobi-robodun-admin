@@ -13,12 +13,10 @@ export function rowsToRefOptions(rows: Record<string, unknown>[]): RefOption[] {
       const id = String(row.id ?? '').trim();
       if (!id) return null;
       const name = String(row.nameJa ?? row.name ?? row.descriptionJa ?? '').trim();
-      const code = String(row.code ?? '').trim();
-      const detail = [name, code ? `(${code})` : ''].filter(Boolean).join(' ');
       return {
         id,
         name,
-        label: detail ? `${id} — ${detail}` : id,
+        label: name ? `${id} — ${name}` : id,
       } satisfies RefOption;
     })
     .filter((x): x is RefOption => x != null)

@@ -7,6 +7,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { UiButton } from './ui';
 
 const links = [
   { to: '/', label: 'ダッシュボード', icon: LayoutDashboard },
@@ -21,48 +22,44 @@ export function Layout() {
 
   return (
     <div className="h-svh flex overflow-hidden">
-      <aside className="w-56 shrink-0 h-full overflow-y-auto border-r border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur p-4 flex flex-col gap-6">
+      <aside className="w-48 shrink-0 h-full overflow-y-auto border-r border-[var(--line)] bg-[var(--panel)]/90 backdrop-blur p-3 flex flex-col gap-4 text-xs">
         <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-[var(--muted)]">
             cobi
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Robodun Admin</h1>
+          <h1 className="text-base font-semibold tracking-tight">Robodun Admin</h1>
         </div>
-        <nav className="flex flex-col gap-1">
+        <nav className="flex flex-col gap-0.5">
           {links.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-2 rounded-md px-3 py-2 text-sm transition ${
+                `flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] transition ${
                   isActive
                     ? 'bg-[var(--accent-soft)] text-[var(--accent)] font-medium'
                     : 'text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--ink)]'
                 }`
               }
             >
-              <Icon size={16} />
+              <Icon size={14} />
               {label}
             </NavLink>
           ))}
         </nav>
         {requiresAuth && currentUser && (
-          <div className="mt-auto space-y-3">
-            <p className="text-xs text-[var(--muted)] break-all text-center">
+          <div className="mt-auto space-y-2">
+            <p className="text-[10px] text-[var(--muted)] break-all text-center">
               {currentUser.email}
             </p>
-            <button
-              type="button"
-              onClick={() => void logout()}
-              className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] hover:bg-[var(--hover)]"
-            >
+            <UiButton className="w-full" onClick={() => void logout()}>
               ログアウト
-            </button>
+            </UiButton>
           </div>
         )}
       </aside>
-      <main className="flex-1 min-w-0 min-h-0 overflow-auto p-6">
+      <main className="flex-1 min-w-0 min-h-0 overflow-auto p-4 text-xs">
         <Outlet />
       </main>
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, currentMode } from '../lib/api';
+import { PageDesc, UiButton } from '../components/ui';
 
 export function OpsPage() {
   const mode = currentMode();
@@ -95,65 +96,55 @@ export function OpsPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">運用</h2>
-        <p className="text-sm text-[var(--muted)] mt-1">
+        <PageDesc>
           モード: <span className="font-mono text-[var(--ink)]">{mode}</span>
-        </p>
+          {gameRoot ? ` · ${gameRoot}` : ''}
+        </PageDesc>
       </header>
 
       <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-3">
-        <h3 className="font-medium">ゲームへの反映手順</h3>
+        <h3 className="font-medium text-sm">ゲームへの反映手順</h3>
         {syncSteps}
       </section>
 
       <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-3">
-        <h3 className="font-medium">エクスポート</h3>
-        <button
-          type="button"
+        <h3 className="font-medium text-sm">エクスポート</h3>
+        <UiButton
+          variant="accent"
           disabled={busy}
           onClick={() => void exportZip()}
-          className="px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
         >
           {busy ? '作成中…' : 'ゲーム反映用 ZIP をダウンロード'}
-        </button>
-        <p className="text-xs text-[var(--muted)]">
+        </UiButton>
+        <p className="text-[11px] text-[var(--muted)]">
           ZIP 直下は <code>data/*.json</code> + <code>assets/**</code>（画像・音声）。
           ゲームリポ直下へコピーするだけで同期できます。ライブラリ画像は含みません。
         </p>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void exportJson()}
-          className="px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
-        >
+        <UiButton disabled={busy} onClick={() => void exportJson()}>
           カタログ JSON のみ（上級者向け）
-        </button>
+        </UiButton>
       </section>
 
       {mode === 'local' && (
         <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-3">
-          <h3 className="font-medium">Android ContentVersion</h3>
-          <p className="text-sm text-[var(--muted)]">
+          <h3 className="font-medium text-sm">Android ContentVersion</h3>
+          <p className="text-[11px] text-[var(--muted)]">
             現在:{' '}
             <span className="font-mono text-[var(--ink)]">{version ?? '—'}</span>
           </p>
-          <p className="text-xs text-[var(--muted)]">
+          <p className="text-[11px] text-[var(--muted)]">
             ローカルモードでは GAME_ROOT を直接編集しているため、ZIP
             なしでも Desktop 確認できます。配布前にバンプしてください。
           </p>
-          <button
-            type="button"
-            onClick={bump}
-            className="px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm"
-          >
+          <UiButton variant="accent" onClick={bump}>
             +1 バンプ
-          </button>
+          </UiButton>
         </section>
       )}
 
       {mode === 'cloud' && (
-        <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-2 text-sm text-[var(--muted)]">
-          <h3 className="font-medium text-[var(--ink)]">クラウド時の注意</h3>
+        <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-2 text-[11px] text-[var(--muted)]">
+          <h3 className="font-medium text-sm text-[var(--ink)]">クラウド時の注意</h3>
           <p>
             Admin 上の編集は Firebase が正本です。ゲームに載せるには必ず ZIP
             反映（または同等の同期）が必要です。ContentVersion バンプはゲームリポ側で行ってください。
@@ -161,10 +152,10 @@ export function OpsPage() {
         </section>
       )}
 
-      {msg && <p className="text-sm text-[var(--muted)]">{msg}</p>}
+      {msg && <p className="text-[11px] text-[var(--muted)]">{msg}</p>}
 
-      <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-2 text-sm text-[var(--muted)]">
-        <h3 className="font-medium text-[var(--ink)]">命名ガイド</h3>
+      <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4 space-y-2 text-[11px] text-[var(--muted)]">
+        <h3 className="font-medium text-sm text-[var(--ink)]">命名ガイド</h3>
         <ul className="list-disc list-inside space-y-1">
           <li>
             管理番号 <code className="text-xs">id</code>: chr_ / enm_ / bos_ / skl_ /

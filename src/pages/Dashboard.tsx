@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, currentMode, type Issue } from '../lib/api';
+import { PageDesc } from '../components/ui';
 
 export function Dashboard() {
   const mode = currentMode();
@@ -23,14 +24,11 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">ダッシュボード</h2>
-        <p className="text-sm text-[var(--muted)] mt-1">
-          ゲーム制作の現在地を一覧します。
-        </p>
+        <PageDesc>ゲーム制作の現在地を一覧します。</PageDesc>
       </header>
 
       {error && (
-        <div className="rounded-lg border border-[var(--danger)]/40 bg-[var(--panel)] p-4 text-sm text-[var(--danger)]">
+        <div className="rounded-lg border border-[var(--danger)]/40 bg-[var(--panel)] p-4 text-[11px] text-[var(--danger)]">
           {error}
           <div className="mt-2 text-[var(--muted)]">
             {mode === 'cloud'
@@ -48,20 +46,20 @@ export function Dashboard() {
                 key={file}
                 className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-3"
               >
-                <div className="text-xs text-[var(--muted)]">{file}</div>
+                <div className="text-[11px] text-[var(--muted)]">{file}</div>
                 <div className="text-2xl font-semibold tabular-nums">{n}</div>
               </div>
             ))}
           </section>
 
           <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] p-4">
-            <h3 className="font-medium mb-2">検証</h3>
-            <p className="text-sm mb-3">
+            <h3 className="font-medium mb-2 text-sm">検証</h3>
+            <p className="text-[11px] mb-3">
               エラー <strong className="text-[var(--danger)]">{errors.length}</strong>
               {' / '}
               警告 <strong className="text-[var(--warn)]">{warnings.length}</strong>
             </p>
-            <ul className="space-y-1 max-h-64 overflow-auto text-sm">
+            <ul className="space-y-1 max-h-64 overflow-auto text-[11px]">
               {issues.slice(0, 40).map((i, idx) => (
                 <li
                   key={idx}

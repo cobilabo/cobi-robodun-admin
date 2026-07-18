@@ -181,3 +181,26 @@ export function pathWithFileName(
   const dir = i >= 0 ? rel.slice(0, i + 1) : '';
   return `${dir}${name}`;
 }
+
+/**
+ * ライブラリ相対パス → プロジェクト（ゲーム assets）相対パス。
+ * 例: enemies/slime.webp → UI/enemies/slime.webp
+ * 既に UI/ / audio/ ならそのまま。
+ */
+export function libraryPathToProjectPath(libraryPath: string): string {
+  const rel = libraryPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!rel) throw new Error('ライブラリパスが空です');
+  if (rel.startsWith('UI/') || rel.startsWith('audio/') || rel.startsWith('fonts/')) {
+    return rel;
+  }
+  return `UI/${rel}`;
+}
+
+/** プロジェクトパスから対応しうるライブラリパス（UI/ を剥がす）。 */
+export function projectPathToLibraryPath(projectPath: string): string | null {
+  const rel = projectPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!rel) return null;
+  if (rel.startsWith('UI/')) return rel.slice(3) || null;
+  return null;
+}
+

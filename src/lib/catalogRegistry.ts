@@ -45,8 +45,13 @@ export function catalogEntryCount(id: string, data: unknown): number {
   }
   if (shape === 'object') {
     if (id === 'hud') {
-      const slots = (data as { equipmentSlots?: unknown[] } | null)?.equipmentSlots;
-      return Array.isArray(slots) ? slots.length : 0;
+      const doc = data as {
+        equipmentSlots?: unknown[];
+        assetSlots?: unknown[];
+      } | null;
+      const eq = Array.isArray(doc?.equipmentSlots) ? doc!.equipmentSlots!.length : 0;
+      const as = Array.isArray(doc?.assetSlots) ? doc!.assetSlots!.length : 0;
+      return eq + as;
     }
     return data && typeof data === 'object' ? 1 : 0;
   }
@@ -71,5 +76,20 @@ export const DEFAULT_HUD = {
       labelJa: 'アクセ',
       icon: 'UI/hud/slot_accessory.png',
     },
+  ],
+  assetSlots: [
+    { key: 'ui.button', labelJa: 'ボタン', icon: '', noteJa: 'タイトル／選択肢ボタン背景' },
+    { key: 'ui.panel', labelJa: 'パネル', icon: '', noteJa: 'ステータスチップ・枠パネル' },
+    { key: 'ui.background', labelJa: 'プレイ背景', icon: '', noteJa: '未設定時は既存 backgrounds' },
+    {
+      key: 'tile.sword',
+      labelJa: '兵器タイル',
+      icon: '',
+      useEquippedWeapon: true,
+      noteJa: '装備中武器アイコン優先',
+    },
+    { key: 'tile.shield', labelJa: '修理タイル', icon: '', noteJa: 'アーマー回復' },
+    { key: 'tile.potion', labelJa: 'ナノタイル', icon: '', noteJa: '体力回復' },
+    { key: 'tile.coin', labelJa: 'クレジットタイル', icon: '', noteJa: 'お金' },
   ],
 } as const;
