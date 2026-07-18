@@ -110,6 +110,16 @@ export function AssetsPage() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
+  /** AI 生成はグローバル busy に乗せない（裏実行） */
+  const [aiJobs, setAiJobs] = useState<
+    Array<{
+      id: string;
+      dest: string;
+      status: 'running' | 'done' | 'error';
+      error?: string;
+    }>
+  >([]);
+  const aiJobSeq = useRef(0);
   const [previewKey, setPreviewKey] = useState(0);
   const [mediaRev, setMediaRev] = useState(0);
   const [uploadPct, setUploadPct] = useState<string | null>(null);
@@ -524,13 +534,20 @@ export function AssetsPage() {
       setMsg('プロンプトを入力してください');
       return;
     }
+    const running = aiJobs.filter((j) => j.status === 'running').length;
+    if (running >= 3) {
+      setMsg('同時生成は最大 3 件です。完了を待ってから再実行してください');
+      return;
+    }
+
     let dest: string;
+    let cat: string;
     try {
       let name = aiDestName.trim() || defaultAiFileName();
       if (!name.toLowerCase().endsWith('.webp')) {
         name = `${name.replace(/\.[^.]+$/, '')}.webp`;
       }
-      const cat = aiDestCat || selected?.category || 'ai';
+      cat = aiDestCat || selected?.category || 'ai';
       if (!existingCategories.includes(cat)) {
         await api.createCategory(cat, 'library').catch(() => undefined);
       }
@@ -539,33 +556,67 @@ export function AssetsPage() {
       setMsg(String((e as Error).message || e));
       return;
     }
-    setBusy(true);
+
+    const promptSnapshot = aiPrompt;
+    const shapeSnapshot = aiShape;
+    const transparentSnapshot = aiTransparent;
+    const refsSnapshot = [...refs];
+    const jobId = `ai-${++aiJobSeq.current}`;
     const shapeLabel =
-      aiShape === 'portrait' ? '縦長' : aiShape === 'landscape' ? '横長' : '正方形';
+      shapeSnapshot === 'portrait'
+        ? '縦長'
+        : shapeSnapshot === 'landscape'
+          ? '横長'
+          : '正方形';
+
+    saveAiPromptForCategory(cat, promptSnapshot);
+    setAiDestName(defaultAiFileName());
+    setAiJobs((prev) => [
+      ...prev,
+      { id: jobId, dest, status: 'running' },
+    ]);
     setMsg(
-      `AI 生成中（参照 ${refs.length} 枚・${shapeLabel}${aiTransparent ? '・透明' : ''}）…`,
+      `AI 生成を開始（裏で実行可）: ${dest}（${shapeLabel}${transparentSnapshot ? '・透明' : ''}）`,
     );
-    try {
-      const r = await api.generateLibraryImage(refs, aiPrompt, dest, {
-        shape: aiShape,
-        transparentBackground: aiTransparent,
-      });
-      saveAiPromptForCategory(cat, aiPrompt);
-      const sizeHint =
-        r.width && r.height ? ` ${r.width}×${r.height}` : '';
-      setMsg(`AI 生成完了: ${r.path}${sizeHint}`);
-      setAiDestCat(categoryOfPath(r.path, 'library'));
-      setAiDestName(defaultAiFileName());
-      await loadLibrary();
-      const entry = (await api.library()).assets.find(
-        (a) => a.relativePath === r.path,
-      );
-      if (entry) await selectAsset(entry);
-    } catch (e) {
-      setMsg(String((e as Error).message || e));
-    } finally {
-      setBusy(false);
-    }
+
+    void (async () => {
+      try {
+        const r = await api.generateLibraryImage(
+          refsSnapshot,
+          promptSnapshot,
+          dest,
+          {
+            shape: shapeSnapshot,
+            transparentBackground: transparentSnapshot,
+          },
+        );
+        const sizeHint =
+          r.width && r.height ? ` ${r.width}×${r.height}` : '';
+        setAiJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId ? { ...j, status: 'done' as const } : j,
+          ),
+        );
+        setMsg(`AI 生成完了: ${r.path}${sizeHint}`);
+        await loadLibrary();
+      } catch (e) {
+        const err = String((e as Error).message || e);
+        setAiJobs((prev) =>
+          prev.map((j) =>
+            j.id === jobId
+              ? { ...j, status: 'error' as const, error: err }
+              : j,
+          ),
+        );
+        setMsg(`AI 生成失敗 (${dest}): ${err}`);
+      } finally {
+        window.setTimeout(() => {
+          setAiJobs((prev) =>
+            prev.filter((j) => j.id !== jobId || j.status === 'running'),
+          );
+        }, 12_000);
+      }
+    })();
   };
 
   const renameSelected = async () => {
@@ -1036,7 +1087,22 @@ export function AssetsPage() {
           {library.length > 0 ? ` · ${library.length} 件` : ''}
           {listBusy ? ' · 一覧取得中…' : ''}
           {uploadPct ? ` · 送信 ${uploadPct}` : ''}
+          {aiJobs.some((j) => j.status === 'running')
+            ? ` · AI生成中 ${aiJobs.filter((j) => j.status === 'running').length} 件`
+            : ''}
         </p>
+      )}
+
+      {aiJobs.length > 0 && (
+        <ul className="text-[11px] font-mono text-[var(--muted)] shrink-0 space-y-0.5">
+          {aiJobs.map((j) => (
+            <li key={j.id}>
+              [{j.status === 'running' ? '生成中' : j.status === 'done' ? '完了' : '失敗'}]{' '}
+              {j.dest}
+              {j.error ? ` — ${j.error}` : ''}
+            </li>
+          ))}
+        </ul>
       )}
 
       <div className="flex flex-wrap gap-1.5 items-center shrink-0">
@@ -1733,11 +1799,17 @@ export function AssetsPage() {
                   </label>
                   <button
                     type="button"
-                    disabled={busy || !aiPrompt.trim() || aiRefs.length === 0}
+                    disabled={
+                      !aiPrompt.trim() ||
+                      aiRefs.length === 0 ||
+                      aiJobs.filter((j) => j.status === 'running').length >= 3
+                    }
                     onClick={() => void runAiGenerate()}
                     className="w-full px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
                   >
-                    生成してライブラリへ保存
+                    {aiJobs.some((j) => j.status === 'running')
+                      ? '生成開始（裏で実行中あり）'
+                      : '生成してライブラリへ保存'}
                   </button>
                 </div>
               )}
