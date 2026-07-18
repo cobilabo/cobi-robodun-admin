@@ -373,6 +373,9 @@ export function CatalogEditor() {
           }),
         )
       : { id: nextId, nameJa: '新規' };
+    if (catalogId === 'bosses') {
+      template.isBoss = true;
+    }
     setRows((prev) => [...prev, template]);
     setSelectedIdx(rows.length);
     setDirty(true);

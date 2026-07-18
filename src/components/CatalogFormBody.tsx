@@ -5,7 +5,7 @@ import {
   refCatalogHint,
 } from '../lib/fieldInfer';
 import { AlphaBoundsPreview } from './AlphaBoundsPreview';
-import { labelForOption, type RefOption } from '../lib/catalogRefs';
+import { type RefOption } from '../lib/catalogRefs';
 import {
   equipBonusKeys,
   formLayoutFor,
@@ -29,7 +29,7 @@ function FieldCaption({
   const note = fieldNote(fieldKey, catalogId);
   return (
     <span className="text-[var(--muted)] text-[11px]">
-      {fieldCaption(fieldKey)}
+      {fieldCaption(fieldKey, catalogId)}
       {suffix}
       {note ? (
         <span className="ml-1.5 text-[9px] opacity-80">{note}</span>
@@ -62,6 +62,11 @@ export function CatalogFormBody({
   const assetKey = 'portrait' in selected ? 'portrait' : 'icon';
 
   const renderField = (key: string, compact = false) => {
+    // ボスカタログでは isBoss は自動付与のため UI 非表示
+    if (catalogId === 'bosses' && key === 'isBoss') return null;
+    // scaling は廃止（効果 type / スキル効果参照で意図を表現）
+    if (key === 'scaling') return null;
+
     if (!(key in selected) && key !== 'descriptionJa' && key !== 'logic') {
       // allow missing optional keys in layout by creating empty
     }
@@ -259,11 +264,6 @@ export function CatalogFormBody({
               <option value={current}>{current}（参照先なし）</option>
             ) : null}
           </UiSelect>
-          {current ? (
-            <p className="mt-0.5 text-[10px] text-[var(--muted)] truncate">
-              {labelForOption(options, current)}
-            </p>
-          ) : null}
         </label>
       );
     }
@@ -375,11 +375,13 @@ export function CatalogFormBody({
         <div
           key={`row-${i}`}
           className={`grid gap-1.5 ${
-            block.cols === 3
-              ? 'grid-cols-3'
-              : block.cols === 2
-                ? 'grid-cols-2'
-                : 'grid-cols-1'
+            block.cols === 4
+              ? 'grid-cols-4'
+              : block.cols === 3
+                ? 'grid-cols-3'
+                : block.cols === 2
+                  ? 'grid-cols-2'
+                  : 'grid-cols-1'
           }`}
         >
           {show.map((k) => {
@@ -401,30 +403,30 @@ export function CatalogFormBody({
       const growth = (selected.growth && typeof selected.growth === 'object'
         ? selected.growth
         : { hp: 0, atk: 0, dex: 0 }) as Record<string, number>;
+      const growthMeta = [
+        { key: 'hp' as const, captionKey: 'growthHp' },
+        { key: 'atk' as const, captionKey: 'growthAtk' },
+        { key: 'dex' as const, captionKey: 'growthDex' },
+      ];
       return (
-        <fieldset key={`growth-${i}`} className="min-w-0">
-          <legend>
-            <FieldCaption fieldKey="growth" catalogId={catalogId} />
-          </legend>
-          <div className="mt-0.5 grid grid-cols-3 gap-1.5">
-            {(['hp', 'atk', 'dex'] as const).map((k) => (
-              <label key={k} className="block min-w-0">
-                <span className="text-[10px] text-[var(--muted)]">{k}</span>
-                <UiInput
-                  type="number"
-                  className="mt-0.5 w-full"
-                  value={Number(growth[k] ?? 0)}
-                  onChange={(e) =>
-                    onUpdate('growth', {
-                      ...growth,
-                      [k]: Number(e.target.value),
-                    })
-                  }
-                />
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <div key={`growth-${i}`} className="grid grid-cols-3 gap-1.5">
+          {growthMeta.map(({ key: k, captionKey }) => (
+            <label key={k} className="block min-w-0">
+              <FieldCaption fieldKey={captionKey} catalogId={catalogId} />
+              <UiInput
+                type="number"
+                className="mt-0.5 w-full"
+                value={Number(growth[k] ?? 0)}
+                onChange={(e) =>
+                  onUpdate('growth', {
+                    ...growth,
+                    [k]: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
       );
     }
 
@@ -461,7 +463,12 @@ export function CatalogFormBody({
       if (b.kind === 'growth') used.add('growth');
       if (b.kind === 'bonuses') equipBonusKeys().forEach((k) => used.add(k));
     }
-    const rest = keys.filter((k) => !used.has(k));
+    const rest = keys.filter(
+      (k) =>
+        !used.has(k) &&
+        !(catalogId === 'bosses' && k === 'isBoss') &&
+        k !== 'scaling',
+    );
     return (
       <div className="space-y-2.5 max-w-3xl text-xs">
         {layout.map(renderBlock)}

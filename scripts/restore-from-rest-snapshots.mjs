@@ -18,7 +18,12 @@ const snapDir =
   process.env.SNAP_DIR || path.resolve(__dirname, '../.restore-tmp');
 const dryRun = process.env.DRY_RUN === '1';
 
-const RESTORE_IDS = ['characters', 'enemies', 'bosses', 'equipment', 'audio', 'hud'];
+// Explicit IDs only — never default to "all catalogs".
+// Usage: RESTORE_IDS=characters node scripts/restore-from-rest-snapshots.mjs
+const RESTORE_IDS = (process.env.RESTORE_IDS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 function decodeValue(v) {
   if (v == null) return null;
@@ -59,6 +64,10 @@ if (!getApps().length) {
 const db = getFirestore();
 
 async function main() {
+  if (!RESTORE_IDS.length) {
+    console.error('Set RESTORE_IDS=id1,id2 (explicit only). Refusing to restore all catalogs.');
+    process.exit(1);
+  }
   console.log({ projectId, snapDir, dryRun, restore: RESTORE_IDS });
 
   for (const id of RESTORE_IDS) {

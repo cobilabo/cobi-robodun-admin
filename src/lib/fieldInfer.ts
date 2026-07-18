@@ -58,6 +58,9 @@ const CAPTIONS: Record<string, string> = {
   dex: 'DEX',
   maxArmor: 'バリア',
   growth: '成長',
+  growthHp: 'HP',
+  growthAtk: '攻撃',
+  growthDex: '機敏',
   exclusiveSkillIds: '専用スキル',
   starterEquipmentIds: '初期装備',
   portrait: '立ち絵',
@@ -68,7 +71,6 @@ const CAPTIONS: Record<string, string> = {
   spawnTurnEnd: '出現終了',
   spawnTurn: '出現ターン',
   isBoss: 'ボス',
-  scaling: 'スケール',
   baseCooldown: 'CD',
   maxLevel: '最大Lv',
   effectIds: '効果',
@@ -91,7 +93,11 @@ const CAPTIONS: Record<string, string> = {
 };
 
 /** Human-readable field caption including referenced catalog. */
-export function fieldCaption(key: string): string {
+export function fieldCaption(key: string, catalogId?: string): string {
+  if (catalogId === 'characters') {
+    if (key === 'maxHp') return '初期 HP';
+    if (key === 'maxArmor') return '初期アーマー';
+  }
   if (CAPTIONS[key]) return CAPTIONS[key];
   const hint = refCatalogHint(key);
   if (!hint) return key;
@@ -124,15 +130,21 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'labelJa':
       return 'HUD 上の表示名';
     case 'maxHp':
-      return '最大 HP';
+      return catalogId === 'characters' ? null : '最大 HP';
     case 'atk':
       return '攻撃';
     case 'dex':
       return '機敏';
     case 'maxArmor':
-      return '最大バリア';
+      return catalogId === 'characters' ? null : '最大バリア';
     case 'growth':
-      return 'レベルアップ時の自動成長';
+      return null;
+    case 'growthHp':
+      return 'Lv UP 時の HP 成長';
+    case 'growthAtk':
+      return 'Lv UP 時の 攻撃成長';
+    case 'growthDex':
+      return 'Lv UP 時の 機敏成長';
     case 'exclusiveSkillIds':
       return 'id 参照';
     case 'starterEquipmentIds':
@@ -154,10 +166,6 @@ export function fieldNote(key: string, catalogId?: string): string | null {
         : '出現ターン';
     case 'isBoss':
       return 'ボス扱い';
-    case 'scaling':
-      return catalogId === 'effects'
-        ? '表示用メモ（実計算は type 側）'
-        : 'ATK / DEX / none';
     case 'baseCooldown':
       return '基本 CD';
     case 'maxLevel':

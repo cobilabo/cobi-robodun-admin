@@ -48,7 +48,6 @@ const ORDERS: Record<string, string[]> = {
     'nameJa',
     'exclusiveTo',
     'descriptionJa',
-    'scaling',
     'baseCooldown',
     'maxLevel',
     'effectIds',
@@ -75,7 +74,6 @@ const ORDERS: Record<string, string[]> = {
     'descriptionJa',
     'baseAmount',
     'perLevel',
-    'scaling',
   ],
   behaviors: ['id', 'nameJa', 'logic', 'descriptionJa'],
   audio_cue: ['id', 'kind', 'loop', 'trigger', 'noteJa', 'file'],
@@ -90,8 +88,7 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
     { kind: 'asset' },
     { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
     { kind: 'field', key: 'descriptionJa' },
-    { kind: 'row', keys: ['maxHp', 'atk', 'dex'], cols: 3 },
-    { kind: 'field', key: 'maxArmor' },
+    { kind: 'row', keys: ['maxHp', 'atk', 'dex', 'maxArmor'], cols: 4 },
     { kind: 'growth' },
     { kind: 'field', key: 'exclusiveSkillIds' },
     { kind: 'field', key: 'starterEquipmentIds' },
@@ -99,22 +96,20 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
   enemies: [
     { kind: 'asset' },
     { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
-    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId'], cols: 3 },
-    { kind: 'field', key: 'attackInterval' },
+    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId', 'attackInterval'], cols: 4 },
     { kind: 'row', keys: ['spawnTurnStart', 'spawnTurnEnd'], cols: 2 },
   ],
   bosses: [
     { kind: 'asset' },
     { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
-    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId'], cols: 3 },
-    { kind: 'row', keys: ['attackInterval', 'spawnTurn'], cols: 2 },
-    { kind: 'field', key: 'isBoss' },
+    { kind: 'row', keys: ['maxHp', 'atk', 'behaviorId', 'attackInterval'], cols: 4 },
+    { kind: 'field', key: 'spawnTurn' },
   ],
   skills: [
     { kind: 'asset' },
     { kind: 'row', keys: ['id', 'nameJa', 'exclusiveTo'], cols: 3 },
     { kind: 'field', key: 'descriptionJa' },
-    { kind: 'row', keys: ['scaling', 'baseCooldown', 'maxLevel'], cols: 3 },
+    { kind: 'row', keys: ['baseCooldown', 'maxLevel'], cols: 2 },
     { kind: 'field', key: 'effectIds' },
   ],
   equipment: [
@@ -127,7 +122,7 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
   effects: [
     { kind: 'row', keys: ['id', 'nameJa', 'type'], cols: 3 },
     { kind: 'field', key: 'descriptionJa' },
-    { kind: 'row', keys: ['baseAmount', 'perLevel', 'scaling'], cols: 3 },
+    { kind: 'row', keys: ['baseAmount', 'perLevel'], cols: 2 },
   ],
   behaviors: [
     { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },
@@ -243,7 +238,11 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
   }
 
   if (Array.isArray(data)) {
-    return orderRows(data, catalogId);
+    const rows = orderRows(data, catalogId);
+    if (catalogId === 'skills' || catalogId === 'effects') {
+      for (const row of rows) delete row.scaling;
+    }
+    return rows;
   }
 
   return data;
