@@ -21,7 +21,6 @@ const openAiApiKey = defineSecret('OPEN_AI_API_KEY');
 
 const LIBRARY_PREFIX = 'library';
 const MAX_REFS = 4;
-const CATEGORY_KEEP_NAME = '.keep';
 
 function normalizeLibraryPath(raw: string): string {
   return raw
@@ -30,42 +29,6 @@ function normalizeLibraryPath(raw: string): string {
     .split('/')
     .filter((s) => s && s !== '.' && s !== '..')
     .join('/');
-}
-
-function libraryCategoryOf(relativePath: string): string {
-  return relativePath.split('/').filter(Boolean)[0] || 'root';
-}
-
-/**
- * Keep only the newly generated file in its category (plus .keep and in-category refs).
- */
-async function pruneCategoryToLatest(
-  bucket: ReturnType<ReturnType<typeof getStorage>['bucket']>,
-  destPath: string,
-  keepExtra: string[],
-): Promise<number> {
-  const category = libraryCategoryOf(destPath);
-  if (!category || category === 'root') return 0;
-
-  const prefix = `${LIBRARY_PREFIX}/${category}/`;
-  const keep = new Set<string>([
-    `${LIBRARY_PREFIX}/${destPath}`,
-    `${prefix}${CATEGORY_KEEP_NAME}`,
-    ...keepExtra
-      .filter((p) => libraryCategoryOf(p) === category)
-      .map((p) => `${LIBRARY_PREFIX}/${p}`),
-  ]);
-
-  const [files] = await bucket.getFiles({ prefix });
-  let deleted = 0;
-  for (const file of files) {
-    const name = file.name.replace(/\\/g, '/');
-    if (!name || name.endsWith('/')) continue;
-    if (keep.has(name)) continue;
-    await file.delete({ ignoreNotFound: true });
-    deleted++;
-  }
-  return deleted;
 }
 
 export const generateLibraryImage = onCall(
@@ -156,8 +119,6 @@ export const generateLibraryImage = onCall(
       },
     });
 
-    const pruned = await pruneCategoryToLatest(bucket, destPath, referencePaths);
-
     return {
       ok: true,
       path: destPath,
@@ -165,7 +126,6 @@ export const generateLibraryImage = onCall(
       transparentBackground,
       width,
       height,
-      pruned,
     };
   },
 );

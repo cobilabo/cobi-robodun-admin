@@ -648,7 +648,6 @@ export const cloudApi: AdminApi = {
       transparentBackground?: boolean;
       width?: number;
       height?: number;
-      pruned?: number;
     };
     if (!data?.path) throw new Error('生成結果のパスがありません');
     invalidateListCache(LIBRARY_PREFIX);
@@ -659,7 +658,6 @@ export const cloudApi: AdminApi = {
       transparentBackground: data.transparentBackground,
       width: data.width,
       height: data.height,
-      pruned: data.pruned,
     };
   },
 

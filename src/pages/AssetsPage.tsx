@@ -40,8 +40,35 @@ const UPLOAD_CONCURRENCY = 6;
 const IMPORT_CONCURRENCY = 4;
 const DELETE_CONCURRENCY = 6;
 const PREVIEW_WIDTH_KEY = 'robodun-admin.assets.previewWidth';
+const AI_PROMPT_BY_CAT_KEY = 'robodun-admin.aiPromptByCategory';
 const MAX_AI_REFS = 4;
 const NEW_CATEGORY_VALUE = '__new__';
+
+function loadAiPromptByCategory(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(AI_PROMPT_BY_CAT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveAiPromptForCategory(category: string, prompt: string) {
+  const cat = category.trim();
+  if (!cat) return;
+  const map = loadAiPromptByCategory();
+  const trimmed = prompt.trim();
+  if (trimmed) map[cat] = trimmed;
+  else delete map[cat];
+  localStorage.setItem(AI_PROMPT_BY_CAT_KEY, JSON.stringify(map));
+}
 
 export function AssetsPage() {
   const [tab, setTab] = useState<'project' | 'library'>('library');
@@ -308,6 +335,8 @@ export function AssetsPage() {
       setDestPath(libraryDestFor(a.relativePath));
       setAiDestCat(a.category);
       setAiDestName(defaultAiFileName());
+      const saved = loadAiPromptByCategory()[a.category];
+      if (typeof saved === 'string') setAiPrompt(saved);
       setDupCat(a.category);
       setDupName(defaultCopyFileName(a.relativePath));
     }
@@ -517,13 +546,10 @@ export function AssetsPage() {
         shape: aiShape,
         transparentBackground: aiTransparent,
       });
+      saveAiPromptForCategory(cat, aiPrompt);
       const sizeHint =
         r.width && r.height ? ` ${r.width}×${r.height}` : '';
-      const pruneHint =
-        typeof r.pruned === 'number' && r.pruned > 0
-          ? `（同カテゴリの旧ファイル ${r.pruned} 件を削除）`
-          : '';
-      setMsg(`AI 生成完了: ${r.path}${sizeHint}${pruneHint}`);
+      setMsg(`AI 生成完了: ${r.path}${sizeHint}`);
       setAiDestCat(categoryOfPath(r.path, 'library'));
       setAiDestName(defaultAiFileName());
       await loadLibrary();
@@ -1617,10 +1643,10 @@ export function AssetsPage() {
                 <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
                   <h4 className="text-sm font-medium">AI 生成</h4>
                   <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                    参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成します。保存先カテゴリには
-                    <strong className="font-medium"> 最新 1 件だけ </strong>
-                    残し、同カテゴリの他ファイルは削除します（参照に使っている画像は残します）。
-                    既定ファイル名は <code className="font-mono">ai_latest.webp</code> です。
+                    参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成し、ライブラリへ
+                    別ファイルとして保存します。手動プロンプトは
+                    <strong className="font-medium"> カテゴリごとに最新 1 件 </strong>
+                    をブラウザに保存し、次回同じカテゴリで復元します。
                   </p>
                   <p className="text-[10px] font-mono break-all text-[var(--muted)]">
                     {aiRefs.join(', ') || '（参照なし）'}
@@ -1655,6 +1681,10 @@ export function AssetsPage() {
                     placeholder="手動プロンプト"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
+                    onBlur={() => {
+                      const cat = aiDestCat || selected?.category || '';
+                      if (cat) saveAiPromptForCategory(cat, aiPrompt);
+                    }}
                   />
                   <label className="block text-xs text-[var(--muted)]">
                     保存先カテゴリ
@@ -1668,7 +1698,12 @@ export function AssetsPage() {
                             existingCategories[0] ||
                             ''
                       }
-                      onChange={(e) => setAiDestCat(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setAiDestCat(next);
+                        const saved = loadAiPromptByCategory()[next];
+                        if (typeof saved === 'string') setAiPrompt(saved);
+                      }}
                     >
                       {!existingCategories.includes(aiDestCat) &&
                         aiDestCat && (

@@ -151,7 +151,6 @@ export const localApi: AdminApi = {
       transparentBackground?: boolean;
       width?: number;
       height?: number;
-      pruned?: number;
     }>('/api/library/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
