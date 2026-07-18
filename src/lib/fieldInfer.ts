@@ -170,7 +170,7 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'slot':
       return catalogId === 'hud'
         ? 'スロット種別'
-        : 'Weapon / Armor / Accessory';
+        : 'Weapon / Armor / Core';
     case 'atkBonus':
     case 'dexBonus':
     case 'defenseBonus':

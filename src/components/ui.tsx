@@ -116,8 +116,10 @@ export function equipSlotLabelJa(slot: unknown): string {
       return '武器';
     case 'Armor':
       return '防具';
-    case 'Accessory':
-      return 'アクセサリ';
+    case 'Core':
+      return 'コア';
+    case 'Accessory': // 旧データ互換
+      return 'コア';
     default:
       return s || '—';
   }

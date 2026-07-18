@@ -72,8 +72,8 @@ export const DEFAULT_HUD = {
       icon: 'UI/hud/slot_armor.png',
     },
     {
-      slot: 'Accessory',
-      labelJa: 'アクセ',
+      slot: 'Core',
+      labelJa: 'コア',
       icon: 'UI/hud/slot_accessory.png',
     },
   ],
@@ -129,6 +129,9 @@ export const EFFECT_TYPES = [
   'NextAttackNull',
   'NextAttackMul',
 ] as const;
+
+/** 装備部位（ゲーム EquipSlot と同期） */
+export const EQUIP_SLOTS = ['Weapon', 'Armor', 'Core'] as const;
 
 /** 行動 logic（ゲーム BehaviorInterpreter と同期） */
 export const BEHAVIOR_LOGICS = [

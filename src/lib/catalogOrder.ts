@@ -154,7 +154,7 @@ const EQUIP_BONUS_KEYS = [
   'potionHealBonus',
 ] as const;
 
-const HUD_SLOT_ORDER = ['Weapon', 'Armor', 'Accessory'];
+const HUD_SLOT_ORDER = ['Weapon', 'Armor', 'Core'];
 
 function orderObj(
   obj: Record<string, unknown>,

@@ -169,8 +169,8 @@ app.get('/api/catalogs/:name', (req, res) => {
             { slot: 'Weapon', labelJa: '武器', icon: 'UI/hud/slot_weapon.png' },
             { slot: 'Armor', labelJa: '防具', icon: 'UI/hud/slot_armor.png' },
             {
-              slot: 'Accessory',
-              labelJa: 'アクセ',
+              slot: 'Core',
+              labelJa: 'コア',
               icon: 'UI/hud/slot_accessory.png',
             },
           ],
