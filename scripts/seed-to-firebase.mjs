@@ -6,6 +6,10 @@
  *   SEED_SCOPE=library npm run seed:firebase   # library only
  *   SEED_SCOPE=project npm run seed:firebase   # catalogs + project assets
  *   CONCURRENCY=12 SKIP_EXISTING=1 npm run seed:firebase
+ *   FORCE_CATALOG_IDS=effects,behaviors,skills npm run seed:firebase
+ *
+ * SKIP_EXISTING (default on) also skips existing Firestore catalogs.
+ * Force specific catalogs with FORCE_CATALOG_IDS, or set SKIP_EXISTING=0.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -114,6 +118,13 @@ async function seedCatalogs(db) {
     'audio',
     'hud',
   ];
+  /** Comma-separated catalog ids to force-overwrite even when SKIP_EXISTING=1. */
+  const forceIds = new Set(
+    (process.env.FORCE_CATALOG_IDS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
   for (const id of catalogs) {
     const file = path.join(dataDir, `${id}.json`);
@@ -121,8 +132,16 @@ async function seedCatalogs(db) {
       console.warn('skip missing', file);
       continue;
     }
+    const ref = db.collection('catalogs').doc(id);
+    if (skipExisting && !forceIds.has(id)) {
+      const existing = await ref.get();
+      if (existing.exists) {
+        console.log('catalog', id, 'skip existing (set FORCE_CATALOG_IDS or SKIP_EXISTING=0 to overwrite)');
+        continue;
+      }
+    }
     const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-    await db.collection('catalogs').doc(id).set(
+    await ref.set(
       {
         data,
         updatedAt: new Date(),
@@ -130,7 +149,7 @@ async function seedCatalogs(db) {
       },
       { merge: true },
     );
-    console.log('catalog', id);
+    console.log('catalog', id, forceIds.has(id) ? '(forced)' : '');
   }
 }
 

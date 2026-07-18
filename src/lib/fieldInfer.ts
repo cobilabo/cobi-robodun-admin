@@ -156,7 +156,9 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'isBoss':
       return 'ボス扱い';
     case 'scaling':
-      return 'ATK / DEX / none';
+      return catalogId === 'effects'
+        ? '表示用メモ（実計算は type 側）'
+        : 'ATK / DEX / none';
     case 'baseCooldown':
       return '基本 CD';
     case 'maxLevel':
@@ -178,9 +180,15 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'potionHealBonus':
       return '補正';
     case 'type':
-      return 'プログラム識別子';
+      return catalogId === 'effects'
+        ? 'HealPercent / DamageAllAtk など'
+        : 'プログラム識別子';
     case 'baseAmount':
-      return '基本値';
+      return catalogId === 'effects'
+        ? '基本%または個数（typeによる）'
+        : '基本値';
+    case 'perLevel':
+      return 'Lvごとの加算';
     case 'logic':
       return 'act_*（プログラム用）';
     default:

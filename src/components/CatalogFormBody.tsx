@@ -12,6 +12,7 @@ import {
   keysForRow,
   type FormBlock,
 } from '../lib/catalogOrder';
+import { BEHAVIOR_LOGICS, EFFECT_TYPES } from '../lib/catalogRegistry';
 import { UiButton, UiInput, UiSelect, UiTextarea } from './ui';
 
 type Row = Record<string, unknown>;
@@ -97,6 +98,56 @@ export function CatalogFormBody({
             />
             <UiButton onClick={() => onPickAsset(key)}>ライブラリ</UiButton>
           </div>
+        </label>
+      );
+    }
+
+    if (key === 'type' && catalogId === 'effects') {
+      const current = String(value ?? '');
+      return (
+        <label key={key} className="block min-w-0">
+          {caption}
+          <UiSelect
+            className={fieldCls}
+            value={current}
+            onChange={(e) => onUpdate(key, e.target.value)}
+          >
+            <option value="">（選択）</option>
+            {EFFECT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+            {current &&
+            !(EFFECT_TYPES as readonly string[]).includes(current) ? (
+              <option value={current}>{current}（未登録）</option>
+            ) : null}
+          </UiSelect>
+        </label>
+      );
+    }
+
+    if (key === 'logic' && catalogId === 'behaviors') {
+      const current = String(value ?? '');
+      return (
+        <label key={key} className="block min-w-0">
+          {caption}
+          <UiSelect
+            className={fieldCls}
+            value={current}
+            onChange={(e) => onUpdate(key, e.target.value)}
+          >
+            <option value="">（選択）</option>
+            {BEHAVIOR_LOGICS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+            {current &&
+            !(BEHAVIOR_LOGICS as readonly string[]).includes(current) ? (
+              <option value={current}>{current}（未登録）</option>
+            ) : null}
+          </UiSelect>
         </label>
       );
     }

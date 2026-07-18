@@ -626,21 +626,39 @@ export const cloudApi: AdminApi = {
     return { ok: true, from, to, moved };
   },
 
-  async generateLibraryImage(referencePaths, prompt, destPath) {
+  async generateLibraryImage(referencePaths, prompt, destPath, options) {
     requireUser();
     const fn = httpsCallable(
       getFunctions(getFirebaseApp(), 'asia-northeast1'),
       'generateLibraryImage',
     );
+    const shape = options?.shape ?? 'square';
+    const transparentBackground = options?.transparentBackground !== false;
     const result = await fn({
       referencePaths,
       prompt,
       destPath,
+      shape,
+      transparentBackground,
     });
-    const data = result.data as { ok?: boolean; path?: string };
+    const data = result.data as {
+      ok?: boolean;
+      path?: string;
+      shape?: string;
+      transparentBackground?: boolean;
+      width?: number;
+      height?: number;
+    };
     if (!data?.path) throw new Error('生成結果のパスがありません');
     invalidateListCache(LIBRARY_PREFIX);
-    return { ok: true, path: data.path };
+    return {
+      ok: true,
+      path: data.path,
+      shape: data.shape,
+      transparentBackground: data.transparentBackground,
+      width: data.width,
+      height: data.height,
+    };
   },
 
   async uploadAsset(destPath, file, contentType) {

@@ -77,9 +77,6 @@ const ORDERS: Record<string, string[]> = {
     'baseAmount',
     'perLevel',
     'scaling',
-    'multiplier',
-    'healOnKill',
-    'hpThreshold',
   ],
   behaviors: ['id', 'nameJa', 'logic', 'descriptionJa'],
   audio_cue: ['id', 'kind', 'loop', 'trigger', 'noteJa', 'file'],
@@ -132,7 +129,6 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
     { kind: 'row', keys: ['id', 'nameJa', 'type'], cols: 3 },
     { kind: 'field', key: 'descriptionJa' },
     { kind: 'row', keys: ['baseAmount', 'perLevel', 'scaling'], cols: 3 },
-    { kind: 'row', keys: ['multiplier', 'healOnKill', 'hpThreshold'], cols: 3 },
   ],
   behaviors: [
     { kind: 'row', keys: ['id', 'nameJa'], cols: 2 },

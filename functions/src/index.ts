@@ -4,11 +4,15 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import {
-  buildPromptWithMagenta,
+  buildEditPrompt,
   editImagesWithReferences,
   imageBufferToPngBuffer,
 } from './openai-image';
-import { postprocessGeneratedImage } from './sprite-postprocess';
+import {
+  parseImageShape,
+  postprocessGeneratedImage,
+  resolveOutputPixels,
+} from './sprite-postprocess';
 
 initializeApp();
 setGlobalOptions({ region: 'asia-northeast1' });
@@ -42,6 +46,8 @@ export const generateLibraryImage = onCall(
     const referencePathsRaw = request.data?.referencePaths;
     const promptRaw = request.data?.prompt;
     const destPathRaw = request.data?.destPath;
+    const shape = parseImageShape(request.data?.shape);
+    const transparentBackground = request.data?.transparentBackground !== false;
 
     if (!Array.isArray(referencePathsRaw) || referencePathsRaw.length === 0) {
       throw new HttpsError('invalid-argument', 'referencePaths が必要です');
@@ -85,9 +91,19 @@ export const generateLibraryImage = onCall(
       pngRefs.push(await imageBufferToPngBuffer(buf));
     }
 
-    const prompt = buildPromptWithMagenta(promptRaw);
-    const generatedPng = await editImagesWithReferences(pngRefs, prompt);
-    const webp = await postprocessGeneratedImage(generatedPng);
+    const prompt = buildEditPrompt(promptRaw, transparentBackground);
+    const generatedPng = await editImagesWithReferences(pngRefs, prompt, {
+      shape,
+      transparentBackground,
+    });
+
+    const { width, height } = resolveOutputPixels(shape, transparentBackground);
+    const webp = await postprocessGeneratedImage(generatedPng, {
+      width,
+      height,
+      transparentBackground,
+      spriteAlign: transparentBackground && shape === 'square',
+    });
 
     const destFile = bucket.file(`${LIBRARY_PREFIX}/${destPath}`);
     await destFile.save(webp, {
@@ -96,10 +112,20 @@ export const generateLibraryImage = onCall(
         metadata: {
           generatedBy: request.auth.token.email ?? request.auth.uid,
           sourceRefs: referencePaths.join(','),
+          shape,
+          transparentBackground: String(transparentBackground),
+          outputSize: `${width}x${height}`,
         },
       },
     });
 
-    return { ok: true, path: destPath };
+    return {
+      ok: true,
+      path: destPath,
+      shape,
+      transparentBackground,
+      width,
+      height,
+    };
   },
 );

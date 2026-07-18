@@ -130,14 +130,25 @@ export type AdminApi = {
     source?: 'project' | 'library',
   ) => Promise<{ ok: boolean; from: string; to: string; moved: number }>;
   /**
-   * Library-only AI generate (gpt-image-2 edits + magenta key + WebP).
+   * Library-only AI generate (gpt-image-2 edits + optional magenta key + WebP).
    * Cloud: Cloud Function. Local: Express + OPEN_AI_API_KEY.
    */
   generateLibraryImage: (
     referencePaths: string[],
     prompt: string,
     destPath: string,
-  ) => Promise<{ ok: boolean; path: string }>;
+    options?: {
+      shape?: 'square' | 'portrait' | 'landscape';
+      transparentBackground?: boolean;
+    },
+  ) => Promise<{
+    ok: boolean;
+    path: string;
+    shape?: string;
+    transparentBackground?: boolean;
+    width?: number;
+    height?: number;
+  }>;
   /** Legacy JSON-only catalog dump */
   exportBundle: () => Promise<Blob>;
   /**

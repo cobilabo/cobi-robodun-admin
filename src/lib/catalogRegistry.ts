@@ -93,3 +93,43 @@ export const DEFAULT_HUD = {
     { key: 'tile.coin', labelJa: 'クレジットタイル', icon: '', noteJa: 'お金' },
   ],
 } as const;
+
+/** 効果 type（ゲーム EffectInterpreter と同期） */
+export const EFFECT_TYPES = [
+  'HealPercent',
+  'ArmorPercent',
+  'CollectCoin',
+  'CollectSword',
+  'CollectShield',
+  'CollectPotion',
+  'ConvertToCoin',
+  'ConvertToSword',
+  'ConvertToShield',
+  'ConvertToPotion',
+  'SwapTiles',
+  'DamageAllAtk',
+  'DamageAllDex',
+  'DamageAllHealHp',
+  'DelayEnemies',
+  'DamageHighestAtk',
+  'DamageHighestDex',
+  'DamageLowestAtk',
+  'DamageLowestDex',
+  'NextAttackNull',
+  'NextAttackMul',
+] as const;
+
+/** 行動 logic（ゲーム BehaviorInterpreter と同期） */
+export const BEHAVIOR_LOGICS = [
+  'act_error',
+  'act_normal',
+  'act_pierce',
+  'act_heavy',
+  'act_lifesteal',
+  'act_suicide',
+  'act_jam',
+  'act_warp',
+  'act_heal_others',
+  'act_charge',
+  'act_transfer',
+] as const;

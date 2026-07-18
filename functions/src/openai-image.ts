@@ -1,6 +1,7 @@
 import sharp from 'sharp';
+import type { ImageShape } from './sprite-postprocess';
+import { OPENAI_SIZE_BY_SHAPE } from './sprite-postprocess';
 
-const GPT_IMAGE_REQUEST_SIZE = '1024x1024';
 const OPENAI_IMAGE_MAX_ATTEMPTS = 5;
 const OPENAI_IMAGE_BASE_DELAY_MS = 1500;
 
@@ -40,7 +41,11 @@ function isGptImage2Family(model: string): boolean {
   return model === 'gpt-image-2' || model.startsWith('gpt-image-2-');
 }
 
-function backgroundForModel(model: string): 'transparent' | 'auto' {
+function backgroundForModel(
+  model: string,
+  transparentBackground: boolean,
+): 'transparent' | 'auto' | 'opaque' {
+  if (!transparentBackground) return 'auto';
   return isGptImage2Family(model) ? 'auto' : 'transparent';
 }
 
@@ -63,16 +68,31 @@ export async function imageBufferToPngBuffer(buf: Buffer): Promise<Buffer> {
   return sharp(buf).png().toBuffer();
 }
 
-export function buildPromptWithMagenta(userPrompt: string): string {
+export function buildEditPrompt(
+  userPrompt: string,
+  transparentBackground: boolean,
+): string {
   const u = userPrompt.trim();
   if (!u) throw new Error('画像生成プロンプトが空です。');
+  if (!transparentBackground) return u;
   return `${u}\n\n${MAGENTA_BG_INSTRUCTION}`;
 }
+
+/** @deprecated use buildEditPrompt */
+export function buildPromptWithMagenta(userPrompt: string): string {
+  return buildEditPrompt(userPrompt, true);
+}
+
+export type EditImagesOptions = {
+  shape?: ImageShape;
+  transparentBackground?: boolean;
+};
 
 /** Reference PNGs → one edited PNG via gpt-image images/edits. */
 export async function editImagesWithReferences(
   referencePngBuffers: Buffer[],
   prompt: string,
+  options: EditImagesOptions = {},
 ): Promise<Buffer> {
   if (referencePngBuffers.length === 0) {
     throw new Error('参照画像がありません。');
@@ -82,17 +102,20 @@ export async function editImagesWithReferences(
     throw new Error('画像編集プロンプトが空です。');
   }
 
+  const shape: ImageShape = options.shape ?? 'square';
+  const transparentBackground = options.transparentBackground !== false;
   const apiKey = getApiKey();
   const model = getModel();
+  const size = OPENAI_SIZE_BY_SHAPE[shape];
 
   const buildEditsForm = (): FormData => {
     const form = new FormData();
     form.append('model', model);
     form.append('prompt', trimmed);
-    form.append('size', GPT_IMAGE_REQUEST_SIZE);
+    form.append('size', size);
     form.append('output_format', 'png');
     form.append('quality', 'medium');
-    form.append('background', backgroundForModel(model));
+    form.append('background', backgroundForModel(model, transparentBackground));
 
     for (let i = 0; i < referencePngBuffers.length; i++) {
       const buf = referencePngBuffers[i]!;

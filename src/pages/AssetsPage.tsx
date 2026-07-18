@@ -68,6 +68,10 @@ export function AssetsPage() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiDestCat, setAiDestCat] = useState('');
   const [aiDestName, setAiDestName] = useState('');
+  const [aiShape, setAiShape] = useState<'square' | 'portrait' | 'landscape'>(
+    'square',
+  );
+  const [aiTransparent, setAiTransparent] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [catMenuOpen, setCatMenuOpen] = useState(false);
   const [emptyCatMenuOpen, setEmptyCatMenuOpen] = useState(false);
@@ -503,10 +507,19 @@ export function AssetsPage() {
       return;
     }
     setBusy(true);
-    setMsg(`AI 生成中（参照 ${refs.length} 枚）…`);
+    const shapeLabel =
+      aiShape === 'portrait' ? '縦長' : aiShape === 'landscape' ? '横長' : '正方形';
+    setMsg(
+      `AI 生成中（参照 ${refs.length} 枚・${shapeLabel}${aiTransparent ? '・透明' : ''}）…`,
+    );
     try {
-      const r = await api.generateLibraryImage(refs, aiPrompt, dest);
-      setMsg(`AI 生成完了（新規保存）: ${r.path}`);
+      const r = await api.generateLibraryImage(refs, aiPrompt, dest, {
+        shape: aiShape,
+        transparentBackground: aiTransparent,
+      });
+      const sizeHint =
+        r.width && r.height ? ` ${r.width}×${r.height}` : '';
+      setMsg(`AI 生成完了（新規保存）: ${r.path}${sizeHint}`);
       setAiDestCat(categoryOfPath(r.path, 'library'));
       setAiDestName(defaultAiFileName());
       await loadLibrary();
@@ -1602,11 +1615,36 @@ export function AssetsPage() {
                   <p className="text-[11px] text-[var(--muted)] leading-relaxed">
                     参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成し、ライブラリへ
                     <strong className="font-medium"> 別ファイル </strong>
-                    として保存します。
+                    として保存します。スプライトは正方形＋背景透明、アプリ背景は縦長＋透明オフが目安です。
                   </p>
                   <p className="text-[10px] font-mono break-all text-[var(--muted)]">
                     {aiRefs.join(', ') || '（参照なし）'}
                   </p>
+                  <label className="block text-xs text-[var(--muted)]">
+                    形状
+                    <select
+                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                      value={aiShape}
+                      onChange={(e) =>
+                        setAiShape(
+                          e.target.value as 'square' | 'portrait' | 'landscape',
+                        )
+                      }
+                    >
+                      <option value="square">正方形</option>
+                      <option value="portrait">縦長</option>
+                      <option value="landscape">横長</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                    <input
+                      type="checkbox"
+                      className="rounded border-[var(--line)]"
+                      checked={aiTransparent}
+                      onChange={(e) => setAiTransparent(e.target.checked)}
+                    />
+                    背景透明化（マゼンタキー抜き）
+                  </label>
                   <textarea
                     className="w-full min-h-[88px] rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
                     placeholder="手動プロンプト"

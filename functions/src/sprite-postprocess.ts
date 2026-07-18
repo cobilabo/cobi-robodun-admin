@@ -1,5 +1,31 @@
 import sharp from 'sharp';
 
+export type ImageShape = 'square' | 'portrait' | 'landscape';
+
+export type PostprocessOptions = {
+  /** Target canvas size after postprocess. */
+  width: number;
+  height: number;
+  /** Magenta chroma-key + alpha pipeline. */
+  transparentBackground: boolean;
+  /**
+   * Bottom-align trimmed sprite on transparent canvas (character sprites).
+   * Only applied when transparentBackground and square output.
+   */
+  spriteAlign: boolean;
+};
+
+type PostprocessEnv = {
+  hex: string;
+  tolerance: number;
+  quality: number;
+  alphaQuality: number;
+  effort: number;
+  bottomPad: number;
+  alphaTrimMin: number;
+  trimPad: number;
+};
+
 function parseRgbHex(hex: string): { r: number; g: number; b: number } {
   const h = hex.replace(/^#/, '').trim();
   if (!/^[\da-fA-F]{6}$/.test(h)) {
@@ -12,30 +38,12 @@ function parseRgbHex(hex: string): { r: number; g: number; b: number } {
   };
 }
 
-type PostprocessEnv = {
-  hex: string;
-  tolerance: number;
-  outputSize: number;
-  quality: number;
-  alphaQuality: number;
-  effort: number;
-  alignEnabled: boolean;
-  bottomPad: number;
-  alphaTrimMin: number;
-  trimPad: number;
-};
-
 function readPostprocessEnv(): PostprocessEnv {
   const hex = process.env.IMAGE_CHROMA_KEY_HEX?.trim() || 'FF00FF';
   const tolRaw = Number(process.env.IMAGE_CHROMA_TOLERANCE ?? '120');
   const tolerance = Number.isFinite(tolRaw)
     ? Math.min(120, Math.max(0, tolRaw))
     : 120;
-  const sizeRaw = Number(process.env.IMAGE_OUTPUT_SIZE ?? '512');
-  const outputSize =
-    Number.isFinite(sizeRaw) && sizeRaw > 0
-      ? Math.min(2048, Math.round(sizeRaw))
-      : 512;
   const qRaw = Number(process.env.IMAGE_WEBP_QUALITY ?? '74');
   const quality = Number.isFinite(qRaw)
     ? Math.min(100, Math.max(1, Math.round(qRaw)))
@@ -55,11 +63,6 @@ function readPostprocessEnv(): PostprocessEnv {
     ? Math.min(6, Math.max(1, Math.round(effRaw)))
     : 5;
 
-  const alignRaw = (process.env.IMAGE_SPRITE_ALIGN_ENABLED ?? 'true')
-    .trim()
-    .toLowerCase();
-  const alignEnabled = alignRaw !== 'false' && alignRaw !== '0';
-
   const bpRaw = Number(process.env.IMAGE_SPRITE_ALIGN_BOTTOM_PADDING_PX ?? '10');
   const bottomPad = Number.isFinite(bpRaw)
     ? Math.max(0, Math.min(256, Math.round(bpRaw)))
@@ -78,15 +81,65 @@ function readPostprocessEnv(): PostprocessEnv {
   return {
     hex,
     tolerance,
-    outputSize,
     quality,
     alphaQuality,
     effort,
-    alignEnabled,
     bottomPad,
     alphaTrimMin,
     trimPad,
   };
+}
+
+/** OpenAI images/edits size strings. */
+export const OPENAI_SIZE_BY_SHAPE: Record<ImageShape, string> = {
+  square: '1024x1024',
+  portrait: '1024x1536',
+  landscape: '1536x1024',
+};
+
+/** Native OpenAI pixel sizes (used as opaque output by default). */
+export const NATIVE_PIXELS_BY_SHAPE: Record<
+  ImageShape,
+  { width: number; height: number }
+> = {
+  square: { width: 1024, height: 1024 },
+  portrait: { width: 1024, height: 1536 },
+  landscape: { width: 1536, height: 1024 },
+};
+
+/**
+ * Sprite-oriented output: short edge = IMAGE_OUTPUT_SIZE (default 512).
+ * portrait ≈ 9:16, landscape ≈ 16:9.
+ */
+export function spriteOutputPixels(shape: ImageShape): {
+  width: number;
+  height: number;
+} {
+  const sizeRaw = Number(process.env.IMAGE_OUTPUT_SIZE ?? '512');
+  const s =
+    Number.isFinite(sizeRaw) && sizeRaw > 0
+      ? Math.min(2048, Math.round(sizeRaw))
+      : 512;
+  if (shape === 'portrait') {
+    return { width: s, height: Math.round((s * 16) / 9) };
+  }
+  if (shape === 'landscape') {
+    return { width: Math.round((s * 16) / 9), height: s };
+  }
+  return { width: s, height: s };
+}
+
+export function resolveOutputPixels(
+  shape: ImageShape,
+  transparentBackground: boolean,
+): { width: number; height: number } {
+  if (transparentBackground) return spriteOutputPixels(shape);
+  return NATIVE_PIXELS_BY_SHAPE[shape];
+}
+
+export function parseImageShape(raw: unknown): ImageShape {
+  if (raw === 'portrait' || raw === 'landscape' || raw === 'square') return raw;
+  return 'square';
 }
 
 function findAlphaBoundingBox(
@@ -120,46 +173,56 @@ function findAlphaBoundingBox(
   };
 }
 
-async function rgbaToLegacyCoverWebp(
-  rgba: Buffer,
-  width: number,
-  height: number,
+async function toWebp(
+  input: sharp.Sharp,
   env: PostprocessEnv,
+  withAlpha: boolean,
 ): Promise<Buffer> {
-  return sharp(rgba, { raw: { width, height, channels: 4 } })
-    .resize(env.outputSize, env.outputSize, {
-      fit: 'cover',
-      position: 'center',
-      kernel: sharp.kernel.lanczos3,
-    })
+  return input
     .webp({
       quality: env.quality,
-      alphaQuality: env.alphaQuality,
+      alphaQuality: withAlpha ? env.alphaQuality : undefined,
       effort: env.effort,
     })
     .toBuffer();
 }
 
-async function rgbaRawToAlignedWebp(
+async function resizeCoverWebp(
+  pngOrRaw: Buffer,
+  rawMeta: { width: number; height: number } | null,
+  outW: number,
+  outH: number,
+  env: PostprocessEnv,
+  withAlpha: boolean,
+): Promise<Buffer> {
+  const pipeline = rawMeta
+    ? sharp(pngOrRaw, {
+        raw: { width: rawMeta.width, height: rawMeta.height, channels: 4 },
+      })
+    : sharp(pngOrRaw);
+  return toWebp(
+    pipeline.resize(outW, outH, {
+      fit: 'cover',
+      position: 'center',
+      kernel: sharp.kernel.lanczos3,
+    }),
+    env,
+    withAlpha,
+  );
+}
+
+async function fitInsideTransparentCanvas(
   rgba: Buffer,
   width: number,
   height: number,
+  outW: number,
+  outH: number,
   env: PostprocessEnv,
+  bottomAlign: boolean,
 ): Promise<Buffer> {
-  if (!env.alignEnabled) {
-    return rgbaToLegacyCoverWebp(rgba, width, height, env);
-  }
-
-  const maxH = env.outputSize - env.bottomPad;
-  if (maxH < 1) {
-    throw new Error(
-      'IMAGE_SPRITE_ALIGN_BOTTOM_PADDING_PX が大きすぎます（出力サイズより小さくしてください）。',
-    );
-  }
-
   const box = findAlphaBoundingBox(rgba, width, height, env.alphaTrimMin);
   if (!box || box.width < 1 || box.height < 1) {
-    return rgbaToLegacyCoverWebp(rgba, width, height, env);
+    return resizeCoverWebp(rgba, { width, height }, outW, outH, env, true);
   }
 
   const left = Math.max(0, box.left - env.trimPad);
@@ -169,8 +232,10 @@ async function rgbaRawToAlignedWebp(
   const cw = right - left;
   const ch = bottom - top;
   if (cw < 1 || ch < 1) {
-    return rgbaToLegacyCoverWebp(rgba, width, height, env);
+    return resizeCoverWebp(rgba, { width, height }, outW, outH, env, true);
   }
+
+  const maxH = bottomAlign ? Math.max(1, outH - env.bottomPad) : outH;
 
   const extractedPng = await sharp(rgba, {
     raw: { width, height, channels: 4 },
@@ -180,7 +245,7 @@ async function rgbaRawToAlignedWebp(
     .toBuffer();
 
   const scaledPng = await sharp(extractedPng)
-    .resize(env.outputSize, maxH, {
+    .resize(outW, maxH, {
       fit: 'inside',
       kernel: sharp.kernel.lanczos3,
     })
@@ -191,46 +256,36 @@ async function rgbaRawToAlignedWebp(
   const sw = meta.width ?? 0;
   const sh = meta.height ?? 0;
   if (sw < 1 || sh < 1) {
-    return rgbaToLegacyCoverWebp(rgba, width, height, env);
+    return resizeCoverWebp(rgba, { width, height }, outW, outH, env, true);
   }
 
-  const leftX = Math.round((env.outputSize - sw) / 2);
-  const topY = env.outputSize - env.bottomPad - sh;
-  const safeTop = Math.max(0, topY);
+  const leftX = Math.round((outW - sw) / 2);
+  const topY = bottomAlign
+    ? Math.max(0, outH - env.bottomPad - sh)
+    : Math.round((outH - sh) / 2);
 
-  return sharp({
-    create: {
-      width: env.outputSize,
-      height: env.outputSize,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-  })
-    .composite([{ input: scaledPng, left: leftX, top: safeTop }])
-    .webp({
-      quality: env.quality,
-      alphaQuality: env.alphaQuality,
-      effort: env.effort,
-    })
-    .toBuffer();
+  return toWebp(
+    sharp({
+      create: {
+        width: outW,
+        height: outH,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    }).composite([{ input: scaledPng, left: leftX, top: topY }]),
+    env,
+    true,
+  );
 }
 
-/** Magenta chroma-key → trim/align → WebP (eve-compatible defaults). */
-export async function postprocessGeneratedImage(
-  pngBuffer: Buffer,
-): Promise<Buffer> {
-  const env = readPostprocessEnv();
+function applyChromaKey(
+  data: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+  env: PostprocessEnv,
+): Buffer {
   const key = parseRgbHex(env.hex);
-  const { data, info } = await sharp(pngBuffer)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const { width, height, channels } = info;
-  if (!width || !height || channels < 3) {
-    throw new Error('画像をデコードできませんでした。');
-  }
-
   const px = width * height;
   const out = Buffer.alloc(px * 4);
   const tolSq = env.tolerance * env.tolerance;
@@ -260,6 +315,46 @@ export async function postprocessGeneratedImage(
       out[dst + 3] = aIn;
     }
   }
+  return out;
+}
 
-  return rgbaRawToAlignedWebp(out, width, height, env);
+/**
+ * Postprocess generated PNG → WebP.
+ * - transparent: chroma-key (+ optional sprite bottom-align on square)
+ * - opaque: resize/cover only (backgrounds etc.)
+ */
+export async function postprocessGeneratedImage(
+  pngBuffer: Buffer,
+  options: PostprocessOptions,
+): Promise<Buffer> {
+  const env = readPostprocessEnv();
+  const outW = Math.max(1, Math.round(options.width));
+  const outH = Math.max(1, Math.round(options.height));
+
+  if (!options.transparentBackground) {
+    return resizeCoverWebp(pngBuffer, null, outW, outH, env, false);
+  }
+
+  const { data, info } = await sharp(pngBuffer)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const { width, height, channels } = info;
+  if (!width || !height || channels < 3) {
+    throw new Error('画像をデコードできませんでした。');
+  }
+
+  const keyed = applyChromaKey(data, width, height, channels, env);
+  const bottomAlign = options.spriteAlign && outW === outH;
+
+  return fitInsideTransparentCanvas(
+    keyed,
+    width,
+    height,
+    outW,
+    outH,
+    env,
+    bottomAlign,
+  );
 }

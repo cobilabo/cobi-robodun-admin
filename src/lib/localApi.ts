@@ -143,11 +143,24 @@ export const localApi: AdminApi = {
       },
     ),
 
-  generateLibraryImage: (referencePaths, prompt, destPath) =>
-    req<{ ok: boolean; path: string }>('/api/library/generate', {
+  generateLibraryImage: (referencePaths, prompt, destPath, options) =>
+    req<{
+      ok: boolean;
+      path: string;
+      shape?: string;
+      transparentBackground?: boolean;
+      width?: number;
+      height?: number;
+    }>('/api/library/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ referencePaths, prompt, destPath }),
+      body: JSON.stringify({
+        referencePaths,
+        prompt,
+        destPath,
+        shape: options?.shape ?? 'square',
+        transparentBackground: options?.transparentBackground !== false,
+      }),
     }),
 
   bumpContentVersion: () =>
