@@ -76,7 +76,6 @@ const CAPTIONS: Record<string, string> = {
   slot: '部位',
   atkBonus: 'ATK+',
   dexBonus: 'DEX+',
-  defenseBonus: 'DEF+',
   maxHpBonus: 'HP+',
   maxArmorBonus: 'バリア+',
   shieldHealBonus: '修理+',
@@ -173,7 +172,6 @@ export function fieldNote(key: string, catalogId?: string): string | null {
         : 'Weapon / Armor / Core';
     case 'atkBonus':
     case 'dexBonus':
-    case 'defenseBonus':
     case 'maxHpBonus':
     case 'maxArmorBonus':
     case 'shieldHealBonus':

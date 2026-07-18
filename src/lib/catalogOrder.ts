@@ -61,7 +61,6 @@ const ORDERS: Record<string, string[]> = {
     'descriptionJa',
     'atkBonus',
     'dexBonus',
-    'defenseBonus',
     'maxHpBonus',
     'maxArmorBonus',
     'shieldHealBonus',
@@ -147,7 +146,6 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
 const EQUIP_BONUS_KEYS = [
   'atkBonus',
   'dexBonus',
-  'defenseBonus',
   'maxHpBonus',
   'maxArmorBonus',
   'shieldHealBonus',
