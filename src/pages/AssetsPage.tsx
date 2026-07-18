@@ -333,10 +333,14 @@ export function AssetsPage() {
     setRenameName(fileNameOf(a.relativePath));
     if (tab === 'library') {
       setDestPath(libraryDestFor(a.relativePath));
-      setAiDestCat(a.category);
+      setAiDestCat((prevCat) => {
+        if (prevCat !== a.category) {
+          if (prevCat) saveAiPromptForCategory(prevCat, aiPrompt);
+          setAiPrompt(loadAiPromptByCategory()[a.category] ?? '');
+        }
+        return a.category;
+      });
       setAiDestName(defaultAiFileName());
-      const saved = loadAiPromptByCategory()[a.category];
-      if (typeof saved === 'string') setAiPrompt(saved);
       setDupCat(a.category);
       setDupName(defaultCopyFileName(a.relativePath));
     }
@@ -1681,9 +1685,9 @@ export function AssetsPage() {
                     placeholder="手動プロンプト"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
-                    onBlur={() => {
+                    onBlur={(e) => {
                       const cat = aiDestCat || selected?.category || '';
-                      if (cat) saveAiPromptForCategory(cat, aiPrompt);
+                      if (cat) saveAiPromptForCategory(cat, e.target.value);
                     }}
                   />
                   <label className="block text-xs text-[var(--muted)]">
@@ -1700,9 +1704,12 @@ export function AssetsPage() {
                       }
                       onChange={(e) => {
                         const next = e.target.value;
+                        const prev = aiDestCat || selected?.category || '';
+                        if (prev && prev !== next) {
+                          saveAiPromptForCategory(prev, aiPrompt);
+                        }
                         setAiDestCat(next);
-                        const saved = loadAiPromptByCategory()[next];
-                        if (typeof saved === 'string') setAiPrompt(saved);
+                        setAiPrompt(loadAiPromptByCategory()[next] ?? '');
                       }}
                     >
                       {!existingCategories.includes(aiDestCat) &&
