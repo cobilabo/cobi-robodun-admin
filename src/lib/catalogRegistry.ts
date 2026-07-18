@@ -94,14 +94,14 @@ export const DEFAULT_HUD = {
     },
     {
       key: 'tile.sword',
-      labelJa: '兵器タイル',
+      labelJa: '弾薬タイル',
       icon: '',
       useEquippedWeapon: true,
       noteJa: '装備中武器アイコン優先',
     },
-    { key: 'tile.shield', labelJa: '修理タイル', icon: '', noteJa: 'アーマー回復' },
-    { key: 'tile.potion', labelJa: 'ナノタイル', icon: '', noteJa: '体力回復' },
-    { key: 'tile.coin', labelJa: 'クレジットタイル', icon: '', noteJa: 'お金' },
+    { key: 'tile.shield', labelJa: '電力タイル', icon: '', noteJa: 'フォースシールド回復' },
+    { key: 'tile.potion', labelJa: '食料タイル', icon: '', noteJa: '体力回復' },
+    { key: 'tile.coin', labelJa: '廃品タイル', icon: '', noteJa: '貯まると開発へ' },
   ],
 } as const;
 

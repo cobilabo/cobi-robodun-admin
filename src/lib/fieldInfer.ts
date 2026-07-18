@@ -78,8 +78,8 @@ const CAPTIONS: Record<string, string> = {
   dexBonus: 'DEX+',
   maxHpBonus: 'HP+',
   maxArmorBonus: 'バリア+',
-  shieldHealBonus: '修理+',
-  potionHealBonus: '回復+',
+  shieldHealBonus: '電力+',
+  potionHealBonus: '食料+',
   type: 'type',
   baseAmount: '基本値',
   perLevel: 'Lvごと',
@@ -150,7 +150,7 @@ export function fieldNote(key: string, catalogId?: string): string | null {
       return '出現期間';
     case 'spawnTurn':
       return catalogId === 'equipment'
-        ? 'ショップに出始めるターン'
+        ? '開発に出始めるターン'
         : '出現ターン';
     case 'isBoss':
       return 'ボス扱い';
