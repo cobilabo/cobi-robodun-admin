@@ -519,7 +519,11 @@ export function AssetsPage() {
       });
       const sizeHint =
         r.width && r.height ? ` ${r.width}×${r.height}` : '';
-      setMsg(`AI 生成完了（新規保存）: ${r.path}${sizeHint}`);
+      const pruneHint =
+        typeof r.pruned === 'number' && r.pruned > 0
+          ? `（同カテゴリの旧ファイル ${r.pruned} 件を削除）`
+          : '';
+      setMsg(`AI 生成完了: ${r.path}${sizeHint}${pruneHint}`);
       setAiDestCat(categoryOfPath(r.path, 'library'));
       setAiDestName(defaultAiFileName());
       await loadLibrary();
@@ -1613,9 +1617,10 @@ export function AssetsPage() {
                 <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
                   <h4 className="text-sm font-medium">AI 生成</h4>
                   <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-                    参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成し、ライブラリへ
-                    <strong className="font-medium"> 別ファイル </strong>
-                    として保存します。スプライトは正方形＋背景透明、アプリ背景は縦長＋透明オフが目安です。
+                    参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成します。保存先カテゴリには
+                    <strong className="font-medium"> 最新 1 件だけ </strong>
+                    残し、同カテゴリの他ファイルは削除します（参照に使っている画像は残します）。
+                    既定ファイル名は <code className="font-mono">ai_latest.webp</code> です。
                   </p>
                   <p className="text-[10px] font-mono break-all text-[var(--muted)]">
                     {aiRefs.join(', ') || '（参照なし）'}

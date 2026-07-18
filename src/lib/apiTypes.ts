@@ -148,6 +148,7 @@ export type AdminApi = {
     transparentBackground?: boolean;
     width?: number;
     height?: number;
+    pruned?: number;
   }>;
   /** Legacy JSON-only catalog dump */
   exportBundle: () => Promise<Blob>;

@@ -125,12 +125,7 @@ export function defaultAiDestPath(referencePath: string): string {
 }
 
 export function defaultAiFileName(): string {
-  const stamp = new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d+Z$/, '')
-    .replace('T', '_');
-  return `ai_${stamp}.webp`;
+  return 'ai_latest.webp';
 }
 
 /** Build library/project relative path from category + file name. */
