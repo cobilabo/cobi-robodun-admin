@@ -23,6 +23,12 @@ import {
 } from './paths.js';
 import { trimTransparentPng } from './trim.js';
 import { orderCatalogData, stringifyCatalog } from '../src/lib/catalogOrder.ts';
+import {
+  categoryKeepPath,
+  categoryStoragePrefix,
+  isCategoryKeepPath,
+  normalizeCategoryName,
+} from '../src/lib/assetCategory.ts';
 import { validateGameContent } from './validate.js';
 
 const app = express();
@@ -463,6 +469,240 @@ app.post('/api/library/copy', (req, res) => {
     res.json({ ok: true, path: destRel });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/assets/move', (req, res) => {
+  const srcRel = String(req.body?.srcPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  const destRel = String(req.body?.destPath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  if (!srcRel || !destRel) {
+    res.status(400).json({ ok: false, error: 'srcPath and destPath required' });
+    return;
+  }
+  if (srcRel === destRel) {
+    res.json({ ok: true, path: destRel });
+    return;
+  }
+  try {
+    let src: string;
+    let dest: string;
+    if (source === 'library') {
+      const lib = libraryRoot();
+      if (!lib) {
+        res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+        return;
+      }
+      src = ensureWithin(lib, path.join(lib, srcRel.replace(/\//g, path.sep)));
+      dest = ensureWithin(lib, path.join(lib, destRel.replace(/\//g, path.sep)));
+    } else {
+      const root = requireGame(res);
+      if (!root) return;
+      src = resolveAssetFile(root, srcRel);
+      dest = resolveAssetFile(root, destRel);
+    }
+    if (!fs.existsSync(src)) {
+      res.status(404).json({ ok: false, error: '移動元が見つかりません' });
+      return;
+    }
+    if (fs.existsSync(dest)) {
+      res.status(409).json({ ok: false, error: '移動先に同名ファイルがあります' });
+      return;
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.renameSync(src, dest);
+    res.json({ ok: true, path: destRel });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/library/generate', (_req, res) => {
+  res.status(501).json({
+    ok: false,
+    error:
+      'ローカルモードの AI 生成は未対応です。クラウド（Hosting）で利用してください。',
+  });
+});
+
+app.post('/api/categories/create', (req, res) => {
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  try {
+    const cat = normalizeCategoryName(String(req.body?.category || ''));
+    const keepRel = categoryKeepPath(cat, source);
+    if (source === 'library') {
+      const lib = libraryRoot();
+      if (!lib) {
+        res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+        return;
+      }
+      const full = ensureWithin(
+        lib,
+        path.join(lib, keepRel.replace(/\//g, path.sep)),
+      );
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      if (!fs.existsSync(full)) fs.writeFileSync(full, '');
+    } else {
+      const root = requireGame(res);
+      if (!root) return;
+      const full = resolveAssetFile(root, keepRel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      if (!fs.existsSync(full)) fs.writeFileSync(full, '');
+    }
+    res.json({ ok: true, category: cat, path: keepRel });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/categories/delete', (req, res) => {
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  try {
+    const cat = normalizeCategoryName(String(req.body?.category || ''));
+    const prefix = categoryStoragePrefix(cat, source);
+    let baseRoot: string;
+    let entries: { rel: string; full: string }[] = [];
+
+    if (source === 'library') {
+      const lib = libraryRoot();
+      if (!lib) {
+        res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+        return;
+      }
+      baseRoot = lib;
+      const dir = ensureWithin(lib, path.join(lib, prefix.replace(/\/$/, '').replace(/\//g, path.sep)));
+      const walk = (d: string) => {
+        if (!fs.existsSync(d)) return;
+        for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+          const full = path.join(d, ent.name);
+          if (ent.isDirectory()) walk(full);
+          else {
+            const rel = path.relative(lib, full).replace(/\\/g, '/');
+            entries.push({ rel, full });
+          }
+        }
+      };
+      walk(dir);
+    } else {
+      const root = requireGame(res);
+      if (!root) return;
+      baseRoot = assetsDir(root);
+      const dir = ensureWithin(
+        baseRoot,
+        path.join(baseRoot, prefix.replace(/\/$/, '').replace(/\//g, path.sep)),
+      );
+      const walk = (d: string) => {
+        if (!fs.existsSync(d)) return;
+        for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+          const full = path.join(d, ent.name);
+          if (ent.isDirectory()) walk(full);
+          else {
+            const rel = path.relative(baseRoot, full).replace(/\\/g, '/');
+            entries.push({ rel, full });
+          }
+        }
+      };
+      walk(dir);
+    }
+
+    const images = entries.filter(
+      (e) =>
+        !isCategoryKeepPath(e.rel) &&
+        ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(
+          path.extname(e.rel).toLowerCase(),
+        ),
+    );
+    if (images.length > 0) {
+      res.status(400).json({
+        ok: false,
+        error: `カテゴリ「${cat}」には画像が ${images.length} 件あるため削除できません`,
+      });
+      return;
+    }
+    if (entries.length === 0) {
+      res.status(404).json({ ok: false, error: `カテゴリ「${cat}」が見つかりません` });
+      return;
+    }
+    for (const e of entries) fs.unlinkSync(e.full);
+    // remove empty dirs bottom-up
+    const dirPath = path.join(
+      baseRoot,
+      prefix.replace(/\/$/, '').replace(/\//g, path.sep),
+    );
+    try {
+      fs.rmSync(dirPath, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    res.json({ ok: true, category: cat, deleted: entries.length });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e) });
+  }
+});
+
+app.post('/api/categories/rename', (req, res) => {
+  const source = req.body?.source === 'library' ? 'library' : 'project';
+  try {
+    const from = normalizeCategoryName(String(req.body?.fromCategory || ''));
+    const to = normalizeCategoryName(String(req.body?.toCategory || ''));
+    if (from === to) {
+      res.json({ ok: true, from, to, moved: 0 });
+      return;
+    }
+    const fromPrefix = categoryStoragePrefix(from, source);
+    const toPrefix = categoryStoragePrefix(to, source);
+
+    let baseRoot: string;
+    if (source === 'library') {
+      const lib = libraryRoot();
+      if (!lib) {
+        res.status(400).json({ ok: false, error: 'LIBRARY_ROOT 未設定' });
+        return;
+      }
+      baseRoot = lib;
+    } else {
+      const root = requireGame(res);
+      if (!root) return;
+      baseRoot = assetsDir(root);
+    }
+
+    const fromDir = ensureWithin(
+      baseRoot,
+      path.join(baseRoot, fromPrefix.replace(/\/$/, '').replace(/\//g, path.sep)),
+    );
+    const toDir = ensureWithin(
+      baseRoot,
+      path.join(baseRoot, toPrefix.replace(/\/$/, '').replace(/\//g, path.sep)),
+    );
+    if (!fs.existsSync(fromDir)) {
+      res.status(404).json({ ok: false, error: `カテゴリ「${from}」が見つかりません` });
+      return;
+    }
+    if (fs.existsSync(toDir)) {
+      res.status(409).json({
+        ok: false,
+        error: `移動先カテゴリ「${to}」は既に存在します`,
+      });
+      return;
+    }
+    fs.mkdirSync(path.dirname(toDir), { recursive: true });
+    fs.renameSync(fromDir, toDir);
+    let moved = 0;
+    const walk = (d: string) => {
+      for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, ent.name);
+        if (ent.isDirectory()) walk(full);
+        else moved++;
+      }
+    };
+    walk(toDir);
+    res.json({ ok: true, from, to, moved });
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e) });
   }
 });
 

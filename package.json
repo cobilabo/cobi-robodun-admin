@@ -15,6 +15,8 @@
     "bump-content-version": "tsx scripts/bump-content-version.ts",
     "seed:firebase": "node scripts/seed-to-firebase.mjs",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:all": "npm run build && firebase deploy --only functions,hosting",
     "deploy:rules": "firebase deploy --only firestore:rules,storage"
   },
   "dependencies": {

@@ -106,6 +106,50 @@ export const localApi: AdminApi = {
       body: JSON.stringify({ srcPath, destPath }),
     }),
 
+  moveAsset: (srcPath, destPath, source = 'project') =>
+    req<{ ok: boolean; path: string }>('/api/assets/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ srcPath, destPath, source }),
+    }),
+
+  createCategory: (category, source = 'project') =>
+    req<{ ok: boolean; category: string; path: string }>(
+      '/api/categories/create',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, source }),
+      },
+    ),
+
+  deleteCategory: (category, source = 'project') =>
+    req<{ ok: boolean; category: string; deleted: number }>(
+      '/api/categories/delete',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, source }),
+      },
+    ),
+
+  renameCategory: (fromCategory, toCategory, source = 'project') =>
+    req<{ ok: boolean; from: string; to: string; moved: number }>(
+      '/api/categories/rename',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromCategory, toCategory, source }),
+      },
+    ),
+
+  generateLibraryImage: (referencePaths, prompt, destPath) =>
+    req<{ ok: boolean; path: string }>('/api/library/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ referencePaths, prompt, destPath }),
+    }),
+
   bumpContentVersion: () =>
     req('/api/ops/bump-content-version', { method: 'POST' }),
 

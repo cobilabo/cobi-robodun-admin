@@ -107,6 +107,37 @@ export type AdminApi = {
     srcPath: string,
     destPath: string,
   ) => Promise<{ ok: boolean; path: string }>;
+  /** Move/rename within project or library (category change). */
+  moveAsset: (
+    srcPath: string,
+    destPath: string,
+    source?: 'project' | 'library',
+  ) => Promise<{ ok: boolean; path: string }>;
+  /** Create an empty category folder (writes .keep). */
+  createCategory: (
+    category: string,
+    source?: 'project' | 'library',
+  ) => Promise<{ ok: boolean; category: string; path: string }>;
+  /** Delete a category only when it has 0 images (removes .keep and leftovers). */
+  deleteCategory: (
+    category: string,
+    source?: 'project' | 'library',
+  ) => Promise<{ ok: boolean; category: string; deleted: number }>;
+  /** Rename a category folder (moves all files under it). */
+  renameCategory: (
+    fromCategory: string,
+    toCategory: string,
+    source?: 'project' | 'library',
+  ) => Promise<{ ok: boolean; from: string; to: string; moved: number }>;
+  /**
+   * Library-only AI generate (gpt-image-2 edits + magenta key + WebP).
+   * Cloud: Cloud Function. Local: Express + OPEN_AI_API_KEY.
+   */
+  generateLibraryImage: (
+    referencePaths: string[],
+    prompt: string,
+    destPath: string,
+  ) => Promise<{ ok: boolean; path: string }>;
   /** Legacy JSON-only catalog dump */
   exportBundle: () => Promise<Blob>;
   /**

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MoreVertical } from 'lucide-react';
 import {
   api,
   assetUrl,
@@ -19,24 +20,27 @@ import {
   type LibraryUploadItem,
 } from '../lib/libraryUpload';
 import { usePersistedWidth } from '../hooks/usePersistedWidth';
+import {
+  categoryOfPath,
+  defaultAiFileName,
+  defaultCopyFileName,
+  fileNameOf,
+  isCategoryKeepPath,
+  pathInCategory,
+  pathWithCategory,
+  pathWithFileName,
+} from '../lib/assetCategory';
 import { countAssetRefs } from '../lib/catalogRefs';
+import { isCloudMode } from '../lib/mode';
 import { CATALOG_IDS } from '../lib/validateContent';
 
 const PAGE_SIZE = 48;
 const UPLOAD_CONCURRENCY = 6;
 const IMPORT_CONCURRENCY = 4;
+const DELETE_CONCURRENCY = 6;
 const PREVIEW_WIDTH_KEY = 'robodun-admin.assets.previewWidth';
-
-function defaultLibraryCopyPath(rel: string): string {
-  const normalized = rel.replace(/\\/g, '/');
-  const i = normalized.lastIndexOf('/');
-  const dir = i >= 0 ? normalized.slice(0, i + 1) : '';
-  const name = i >= 0 ? normalized.slice(i + 1) : normalized;
-  const dot = name.lastIndexOf('.');
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  const ext = dot > 0 ? name.slice(dot) : '';
-  return `${dir}${base}_copy${ext}`;
-}
+const MAX_AI_REFS = 4;
+const NEW_CATEGORY_VALUE = '__new__';
 
 export function AssetsPage() {
   const [tab, setTab] = useState<'project' | 'library'>('project');
@@ -54,18 +58,36 @@ export function AssetsPage() {
   const [destPath, setDestPath] = useState('UI/imported/item.png');
   const [importRoot, setImportRoot] = useState('UI/imported');
   const [dupOpen, setDupOpen] = useState(false);
-  const [dupPath, setDupPath] = useState('');
+  const [dupCat, setDupCat] = useState('');
+  const [dupName, setDupName] = useState('');
+  const [moveCat, setMoveCat] = useState('');
+  const [catCreateNew, setCatCreateNew] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [renameName, setRenameName] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDestCat, setAiDestCat] = useState('');
+  const [aiDestName, setAiDestName] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [catMenuOpen, setCatMenuOpen] = useState(false);
+  const [emptyCatMenuOpen, setEmptyCatMenuOpen] = useState(false);
+  const [renameCatMenuOpen, setRenameCatMenuOpen] = useState(false);
+  const [renameFromCat, setRenameFromCat] = useState('');
+  const [renameToCat, setRenameToCat] = useState('');
+  const [selectMode, setSelectMode] = useState(false);
+  const [rangeAnchor, setRangeAnchor] = useState<number | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   const [previewKey, setPreviewKey] = useState(0);
-  /** Bumped after trim/overwrite so thumbs & preview bypass HTTP cache. */
   const [mediaRev, setMediaRev] = useState(0);
   const [uploadPct, setUploadPct] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const paintSelectRef = useRef(false);
+  const paintAddRef = useRef(true);
   const {
     width: previewWidth,
     onPointerDown: onResizeDown,
@@ -136,27 +158,88 @@ export function AssetsPage() {
     setChecked(new Set());
     setSelected(null);
     setPage(1);
+    setMenuOpen(false);
+    setCatMenuOpen(false);
+    setEmptyCatMenuOpen(false);
+    setRenameCatMenuOpen(false);
+    setRangeAnchor(null);
   }, [tab, cat, q, usageFilter]);
+
+  useEffect(() => {
+    const endPaint = () => {
+      paintSelectRef.current = false;
+    };
+    window.addEventListener('pointerup', endPaint);
+    window.addEventListener('pointercancel', endPaint);
+    return () => {
+      window.removeEventListener('pointerup', endPaint);
+      window.removeEventListener('pointercancel', endPaint);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) {
+        setMenuOpen(false);
+        setCatMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [menuOpen]);
 
   const list = tab === 'project' ? project : library;
   const source = tab === 'library' ? 'library' : 'project';
 
-  const categories = useMemo(() => {
-    const set = new Set(list.map((a) => a.category));
-    return ['all', ...[...set].sort()];
+  const imageList = useMemo(
+    () =>
+      list.filter(
+        (a) => a.kind === 'image' && !isCategoryKeepPath(a.relativePath),
+      ),
+    [list],
+  );
+
+  const categoryStats = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of list) {
+      const c = a.category;
+      if (!c) continue;
+      if (!map.has(c)) map.set(c, 0);
+      if (a.kind === 'image' && !isCategoryKeepPath(a.relativePath)) {
+        map.set(c, (map.get(c) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [list]);
+
+  const existingCategories = useMemo(
+    () => categoryStats.map((c) => c.name),
+    [categoryStats],
+  );
+
+  const emptyCategories = useMemo(
+    () => categoryStats.filter((c) => c.count === 0).map((c) => c.name),
+    [categoryStats],
+  );
+
+  const categories = useMemo(
+    () => ['all', ...existingCategories],
+    [existingCategories],
+  );
 
   const unusedCount = useMemo(() => {
     if (tab !== 'project') return 0;
-    return project.filter(
-      (a) => a.kind === 'image' && (refCounts.get(a.relativePath) ?? 0) === 0,
+    return imageList.filter(
+      (a) => (refCounts.get(a.relativePath) ?? 0) === 0,
     ).length;
-  }, [tab, project, refCounts]);
+  }, [tab, imageList, refCounts]);
 
   const filtered = useMemo(() => {
     const qLower = q.toLowerCase();
-    return list.filter((a) => {
-      if (a.kind !== 'image') return false;
+    return imageList.filter((a) => {
       if (cat !== 'all' && a.category !== cat) return false;
       if (qLower && !a.relativePath.toLowerCase().includes(qLower)) return false;
       if (tab === 'project') {
@@ -166,7 +249,7 @@ export function AssetsPage() {
       }
       return true;
     });
-  }, [list, cat, q, tab, usageFilter, refCounts]);
+  }, [imageList, cat, q, tab, usageFilter, refCounts]);
 
   const visibleImages = filtered.slice(0, page * PAGE_SIZE);
   const hasMore = visibleImages.length < filtered.length;
@@ -194,14 +277,34 @@ export function AssetsPage() {
     return root ? `${root}/${rel}` : rel;
   };
 
+  const selectionTargets = (): string[] => {
+    if (checked.size > 0) return [...checked];
+    return selected ? [selected.relativePath] : [];
+  };
+
+  const aiReferencePaths = (): string[] => {
+    const out: string[] = [];
+    if (selected) out.push(selected.relativePath);
+    for (const p of checked) {
+      if (out.length >= MAX_AI_REFS) break;
+      if (!out.includes(p)) out.push(p);
+    }
+    return out.slice(0, MAX_AI_REFS);
+  };
+
   const selectAsset = async (a: AssetEntry) => {
     const cached = a.url || peekAssetUrl(a.relativePath, source);
     const next = cached ? { ...a, url: cached } : a;
     setSelected(next);
     setDupOpen(false);
-    setDupPath('');
+    setMoveCat(a.category);
+    setRenameName(fileNameOf(a.relativePath));
     if (tab === 'library') {
       setDestPath(libraryDestFor(a.relativePath));
+      setAiDestCat(a.category);
+      setAiDestName(defaultAiFileName());
+      setDupCat(a.category);
+      setDupName(defaultCopyFileName(a.relativePath));
     }
     if (!next.url) {
       const url = await ensureAssetUrl(a.relativePath, source);
@@ -210,6 +313,254 @@ export function AssetsPage() {
           prev?.relativePath === a.relativePath ? { ...prev, url } : prev,
         );
       }
+    }
+  };
+
+  const changeCategory = async () => {
+    const nextCat = (catCreateNew ? newCatName : moveCat).trim();
+    if (!nextCat) {
+      setMsg('カテゴリを入力してください');
+      return;
+    }
+    const paths = selectionTargets();
+    if (paths.length === 0) {
+      setMsg('対象画像を選択してください');
+      return;
+    }
+    const plans: { src: string; dest: string }[] = [];
+    try {
+      for (const src of paths) {
+        const dest = pathWithCategory(src, nextCat, source);
+        if (src !== dest) plans.push({ src, dest });
+      }
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+      return;
+    }
+    if (plans.length === 0) {
+      setMsg('カテゴリは既に同じです');
+      return;
+    }
+    if (
+      !confirm(
+        `${plans.length} 件のカテゴリを「${nextCat}」へ変更（ファイル移動）します。\nカタログ内のパスは自動更新されません。よろしいですか？`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMenuOpen(false);
+    setCatMenuOpen(false);
+    setMsg('カテゴリ変更中…');
+    let done = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    try {
+      if (catCreateNew && !existingCategories.includes(nextCat)) {
+        await api.createCategory(nextCat, source).catch(() => undefined);
+      }
+      for (const { src, dest } of plans) {
+        try {
+          await api.moveAsset(src, dest, source);
+          forgetAssetUrl(src, source);
+          done++;
+        } catch (e) {
+          failed++;
+          if (errors.length < 5) {
+            errors.push(`${src}: ${(e as Error).message || e}`);
+          }
+        }
+      }
+      setMsg(
+        `カテゴリ変更: 成功 ${done}` +
+          (failed ? ` / 失敗 ${failed}` : '') +
+          (errors.length ? `（例: ${errors[0]}）` : ''),
+      );
+      setChecked(new Set());
+      setSelected(null);
+      setCatCreateNew(false);
+      setNewCatName('');
+      await refresh();
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createEmptyCategory = async () => {
+    const name = newCatName.trim();
+    if (!name) {
+      setMsg('新規カテゴリ名を入力してください');
+      return;
+    }
+    setBusy(true);
+    setMenuOpen(false);
+    setCatMenuOpen(false);
+    try {
+      const r = await api.createCategory(name, source);
+      setMsg(`カテゴリ「${r.category}」を作成しました`);
+      setNewCatName('');
+      setCatCreateNew(false);
+      await refresh();
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteEmptyCategory = async (name: string) => {
+    if (
+      !confirm(
+        `カテゴリ「${name}」を削除しますか？\n（画像 0 件のときのみ削除できます）`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMenuOpen(false);
+    setEmptyCatMenuOpen(false);
+    try {
+      const r = await api.deleteCategory(name, source);
+      setMsg(`カテゴリ「${r.category}」を削除しました`);
+      if (cat === name) setCat('all');
+      await refresh();
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const renameCategory = async () => {
+    const from = renameFromCat.trim();
+    const to = renameToCat.trim();
+    if (!from || !to) {
+      setMsg('変更前・変更後のカテゴリ名を入力してください');
+      return;
+    }
+    if (from === to) {
+      setMsg('カテゴリ名は変更されていません');
+      return;
+    }
+    if (
+      !confirm(
+        `カテゴリ名を変更しますか？\n「${from}」→「${to}」\n配下のファイルをすべて移動します。\nカタログ内のパスは自動更新されません。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMenuOpen(false);
+    setRenameCatMenuOpen(false);
+    setMsg('カテゴリ名を変更中…');
+    try {
+      const r = await api.renameCategory(from, to, source);
+      setMsg(
+        `カテゴリ名を変更しました: ${r.from} → ${r.to}（${r.moved} 件）`,
+      );
+      if (cat === from) setCat(to);
+      setChecked(new Set());
+      setSelected(null);
+      setRenameToCat('');
+      await refresh();
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runAiGenerate = async () => {
+    if (!isCloudMode()) {
+      setMsg('AI 生成はクラウドモードでのみ利用できます');
+      return;
+    }
+    const refs = aiReferencePaths();
+    if (refs.length === 0) {
+      setMsg('参照画像を選択してください');
+      return;
+    }
+    if (!aiPrompt.trim()) {
+      setMsg('プロンプトを入力してください');
+      return;
+    }
+    let dest: string;
+    try {
+      let name = aiDestName.trim() || defaultAiFileName();
+      if (!name.toLowerCase().endsWith('.webp')) {
+        name = `${name.replace(/\.[^.]+$/, '')}.webp`;
+      }
+      const cat = aiDestCat || selected?.category || 'ai';
+      if (!existingCategories.includes(cat)) {
+        await api.createCategory(cat, 'library').catch(() => undefined);
+      }
+      dest = pathInCategory(cat, name, 'library');
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+      return;
+    }
+    setBusy(true);
+    setMsg(`AI 生成中（参照 ${refs.length} 枚）…`);
+    try {
+      const r = await api.generateLibraryImage(refs, aiPrompt, dest);
+      setMsg(`AI 生成完了（新規保存）: ${r.path}`);
+      setAiDestCat(categoryOfPath(r.path, 'library'));
+      setAiDestName(defaultAiFileName());
+      await loadLibrary();
+      const entry = (await api.library()).assets.find(
+        (a) => a.relativePath === r.path,
+      );
+      if (entry) await selectAsset(entry);
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const renameSelected = async () => {
+    if (!selected) return;
+    let dest: string;
+    try {
+      dest = pathWithFileName(selected.relativePath, renameName);
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+      return;
+    }
+    if (dest === selected.relativePath) {
+      setMsg('ファイル名は変更されていません');
+      return;
+    }
+    if (
+      !confirm(
+        `ファイル名を変更しますか？\n${selected.relativePath}\n→ ${dest}\n\nカタログ内のパスは自動更新されません。`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setMsg('リネーム中…');
+    try {
+      const r = await api.moveAsset(selected.relativePath, dest, source);
+      forgetAssetUrl(selected.relativePath, source);
+      setMsg(`リネームしました: ${r.path}`);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        next.delete(selected.relativePath);
+        next.add(r.path);
+        return next;
+      });
+      await refresh();
+      const listRes =
+        source === 'library' ? await api.library() : await api.assets();
+      const entry = listRes.assets.find((a) => a.relativePath === r.path);
+      if (entry) await selectAsset(entry);
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -223,11 +574,67 @@ export function AssetsPage() {
     });
   };
 
+  const applyRangeCheck = (fromIdx: number, toIdx: number, enable = true) => {
+    const lo = Math.min(fromIdx, toIdx);
+    const hi = Math.max(fromIdx, toIdx);
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (let i = lo; i <= hi; i++) {
+        const path = filtered[i]?.relativePath;
+        if (!path) continue;
+        if (enable) next.add(path);
+        else next.delete(path);
+      }
+      return next;
+    });
+  };
+
+  const handleItemPick = (
+    a: AssetEntry,
+    indexInFiltered: number,
+    e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  ) => {
+    if (selectMode) {
+      if (e.shiftKey && rangeAnchor !== null) {
+        applyRangeCheck(rangeAnchor, indexInFiltered, true);
+      } else if (e.metaKey || e.ctrlKey) {
+        toggleCheck(a.relativePath);
+        setRangeAnchor(indexInFiltered);
+      } else {
+        toggleCheck(a.relativePath);
+        setRangeAnchor(indexInFiltered);
+      }
+      void selectAsset(a);
+      return;
+    }
+    void selectAsset(a);
+  };
+
+  const beginPaintSelect = (rel: string, currentlyChecked: boolean) => {
+    if (!selectMode) return;
+    paintSelectRef.current = true;
+    paintAddRef.current = !currentlyChecked;
+    toggleCheck(rel, paintAddRef.current);
+  };
+
+  const paintSelectEnter = (rel: string) => {
+    if (!selectMode || !paintSelectRef.current) return;
+    toggleCheck(rel, paintAddRef.current);
+  };
+
   const selectAllVisible = () => {
     setChecked(new Set(visibleImages.map((a) => a.relativePath)));
   };
 
-  const clearChecked = () => setChecked(new Set());
+  const selectAllFiltered = () => {
+    setChecked(new Set(filtered.map((a) => a.relativePath)));
+    setRangeAnchor(filtered.length > 0 ? 0 : null);
+  };
+
+  const clearChecked = () => {
+    setChecked(new Set());
+    setRangeAnchor(null);
+  };
 
   const runTrim = async (paths: string[]) => {
     if (paths.length === 0 || tab !== 'library') return;
@@ -239,6 +646,7 @@ export function AssetsPage() {
       return;
     }
     setBusy(true);
+    setMenuOpen(false);
     setMsg('トリム中...');
     try {
       const r = await api.trimBatch(paths, 'library');
@@ -266,43 +674,68 @@ export function AssetsPage() {
     }
   };
 
-  const trimChecked = () => runTrim([...checked]);
-  const trimAllVisible = () =>
-    runTrim(visibleImages.map((a) => a.relativePath));
   const trimSelectedOne = () => {
     if (!selected) return;
-    runTrim([selected.relativePath]);
+    void runTrim([selected.relativePath]);
   };
 
-  const deleteSelected = async () => {
-    if (!selected) return;
-    const path = selected.relativePath;
-    const refs =
-      tab === 'project' ? (refCounts.get(path) ?? 0) : 0;
+  const deletePaths = async (paths: string[]) => {
+    if (paths.length === 0) return;
     const where = tab === 'library' ? 'ライブラリ' : 'プロジェクト';
-    const warn =
-      refs > 0
-        ? `\n\n注意: カタログから ${refs} 件参照されています。削除すると参照切れになります。`
-        : '';
+    let refWarn = '';
+    if (tab === 'project') {
+      const withRefs = paths.filter((p) => (refCounts.get(p) ?? 0) > 0);
+      if (withRefs.length > 0) {
+        refWarn = `\n\n注意: ${withRefs.length} 件はカタログから参照されています。削除すると参照切れになります。`;
+      }
+    }
     if (
       !confirm(
-        `${where}から削除しますか？\n${path}${warn}\n\nこの操作は元に戻せません。`,
+        `${where}から ${paths.length} 件を削除しますか？${refWarn}\n\nこの操作は元に戻せません。`,
       )
     ) {
       return;
     }
     setBusy(true);
+    setMenuOpen(false);
     setMsg('削除中...');
+    let done = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < paths.length) {
+        const idx = cursor++;
+        const path = paths[idx]!;
+        try {
+          await api.deleteAsset(path, source);
+          forgetAssetUrl(path, source);
+          done++;
+        } catch (e) {
+          failed++;
+          if (errors.length < 5) {
+            errors.push(`${path}: ${(e as Error).message || e}`);
+          }
+        }
+        setMsg(`削除中 ${done + failed}/${paths.length}…`);
+      }
+    };
     try {
-      await api.deleteAsset(path, source);
-      forgetAssetUrl(path, source);
-      setChecked((prev) => {
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
-      setSelected(null);
-      setMsg(`削除しました: ${path}`);
+      await Promise.all(
+        Array.from(
+          { length: Math.min(DELETE_CONCURRENCY, paths.length) },
+          () => worker(),
+        ),
+      );
+      setMsg(
+        `削除完了: 成功 ${done}` +
+          (failed ? ` / 失敗 ${failed}` : '') +
+          (errors.length ? `（例: ${errors[0]}）` : ''),
+      );
+      setChecked(new Set());
+      if (selected && paths.includes(selected.relativePath)) {
+        setSelected(null);
+      }
       await refresh();
     } catch (e) {
       setMsg(String((e as Error).message || e));
@@ -325,15 +758,22 @@ export function AssetsPage() {
 
   const openDuplicate = () => {
     if (!selected || tab !== 'library') return;
-    setDupPath(defaultLibraryCopyPath(selected.relativePath));
+    setDupCat(selected.category);
+    setDupName(defaultCopyFileName(selected.relativePath));
     setDupOpen(true);
   };
 
   const confirmDuplicate = async () => {
     if (!selected || tab !== 'library') return;
-    const dest = dupPath.replace(/\\/g, '/').replace(/^\/+/, '').trim();
-    if (!dest) {
-      setMsg('複製先パスを入力してください');
+    let dest: string;
+    try {
+      dest = pathInCategory(
+        dupCat || selected.category,
+        dupName.trim() || defaultCopyFileName(selected.relativePath),
+        'library',
+      );
+    } catch (e) {
+      setMsg(String((e as Error).message || e));
       return;
     }
     if (dest === selected.relativePath) {
@@ -351,16 +791,6 @@ export function AssetsPage() {
         (a) => a.relativePath === r.path,
       );
       if (entry) await selectAsset(entry);
-      else {
-        setSelected({
-          relativePath: r.path,
-          name: r.path.split('/').pop() || r.path,
-          category: r.path.split('/')[0] || 'lib',
-          kind: 'image',
-          size: 0,
-          mtimeMs: Date.now(),
-        });
-      }
     } catch (e) {
       setMsg(String((e as Error).message || e));
     } finally {
@@ -369,8 +799,12 @@ export function AssetsPage() {
   };
 
   const importChecked = async () => {
-    if (tab !== 'library' || checked.size === 0) return;
-    const paths = [...checked];
+    if (tab !== 'library') return;
+    const paths = selectionTargets();
+    if (paths.length === 0) {
+      setMsg('取込対象を選択してください');
+      return;
+    }
     if (
       !confirm(
         `${paths.length} 件をプロジェクトへ取り込みます。\n先頭パス: ${importRoot}/\n同名は上書きされます。よろしいですか？`,
@@ -379,6 +813,7 @@ export function AssetsPage() {
       return;
     }
     setBusy(true);
+    setMenuOpen(false);
     let done = 0;
     let failed = 0;
     let cursor = 0;
@@ -386,7 +821,7 @@ export function AssetsPage() {
     const worker = async () => {
       while (cursor < paths.length) {
         const idx = cursor++;
-        const libPath = paths[idx];
+        const libPath = paths[idx]!;
         const dest = libraryDestFor(libPath);
         try {
           await api.importAsset(libPath, dest);
@@ -444,7 +879,7 @@ export function AssetsPage() {
     const worker = async () => {
       while (cursor < items.length) {
         const idx = cursor++;
-        const item = items[idx];
+        const item = items[idx]!;
         try {
           await api.uploadLibraryFile(
             item.relativePath,
@@ -518,6 +953,10 @@ export function AssetsPage() {
       : libraryUrl(selected.relativePath, selected)
     : '';
 
+  const hasSelection = checked.size > 0 || Boolean(selected);
+  const selectionCount = checked.size > 0 ? checked.size : selected ? 1 : 0;
+  const aiRefs = aiReferencePaths();
+
   return (
     <div className="h-[calc(100svh-3rem)] flex flex-col gap-3 min-h-0">
       <header className="flex items-end justify-between gap-3 flex-wrap shrink-0">
@@ -525,9 +964,9 @@ export function AssetsPage() {
           <h2 className="text-2xl font-semibold tracking-tight">アセット</h2>
           <p className="text-sm text-[var(--muted)]">
             {tab === 'library'
-              ? '外部素材庫。トリム・複製・一括取込。「素材を追加」またはドロップで追加。'
-              : 'ゲーム正本。カタログ参照の確認・削除。'}
-            {msg}
+              ? '外部素材庫。選択モードで範囲選択可。右パネルで AI 生成・リネーム。一括操作は ⋮ から。'
+              : 'ゲーム正本。選択モードで範囲選択可。右パネルでリネーム。一括操作は ⋮ から。'}
+            {msg ? ` — ${msg}` : ''}
           </p>
         </div>
         <div className="flex gap-2">
@@ -599,11 +1038,38 @@ export function AssetsPage() {
         )}
         <button
           type="button"
+          disabled={busy}
+          onClick={() => {
+            setSelectMode((v) => !v);
+            setRangeAnchor(null);
+            paintSelectRef.current = false;
+          }}
+          className={`px-3 py-1.5 rounded border text-sm disabled:opacity-40 ${
+            selectMode
+              ? 'bg-[var(--accent)] text-[var(--bg)] border-transparent'
+              : 'border-[var(--line)] bg-[var(--input-bg)]'
+          }`}
+          title="ON: クリックで選択、Shift+クリックで範囲、ドラッグで連続選択"
+        >
+          選択モード{selectMode ? ' ON' : ''}
+          {checked.size > 0 ? `（${checked.size}）` : ''}
+        </button>
+        <button
+          type="button"
           disabled={busy || visibleImages.length === 0}
           onClick={selectAllVisible}
           className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
         >
           表示中を全選択
+        </button>
+        <button
+          type="button"
+          disabled={busy || filtered.length === 0}
+          onClick={selectAllFiltered}
+          className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+          title="フィルタ後の全件（未表示分含む）"
+        >
+          絞り込み全選択（{filtered.length}）
         </button>
         <button
           type="button"
@@ -635,32 +1101,286 @@ export function AssetsPage() {
             >
               素材を追加
             </button>
-            <button
-              type="button"
-              disabled={busy || checked.size === 0}
-              onClick={trimChecked}
-              className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
-            >
-              選択をトリム（{checked.size}）
-            </button>
-            <button
-              type="button"
-              disabled={busy || visibleImages.length === 0}
-              onClick={trimAllVisible}
-              className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
-            >
-              表示中を一括トリム（{visibleImages.length}）
-            </button>
-            <button
-              type="button"
-              disabled={busy || checked.size === 0}
-              onClick={() => void importChecked()}
-              className="px-3 py-1.5 rounded text-sm bg-[var(--accent)] text-[var(--bg)] disabled:opacity-40"
-            >
-              選択を取込（{checked.size}）
-            </button>
           </>
         )}
+
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setMenuOpen((o) => !o);
+              setCatMenuOpen(false);
+            }}
+            className="px-2 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40 inline-flex items-center justify-center"
+            title="選択に対する操作"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-1 z-30 min-w-[220px] rounded-lg border border-[var(--line)] bg-[var(--panel)] shadow-lg py-1 text-sm"
+            >
+              {tab === 'library' && (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!hasSelection}
+                    className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)] disabled:opacity-40"
+                    onClick={() => void runTrim(selectionTargets())}
+                  >
+                    選択をトリム（{selectionCount}）
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!hasSelection}
+                    className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)] disabled:opacity-40"
+                    onClick={() => void importChecked()}
+                  >
+                    選択を取込（{selectionCount}）
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!hasSelection}
+                className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)] disabled:opacity-40"
+                onClick={() => {
+                  const paths = selectionTargets();
+                  const entry = paths[0]
+                    ? list.find((a) => a.relativePath === paths[0])
+                    : undefined;
+                  const current = entry?.category ?? '';
+                  setCatCreateNew(false);
+                  setNewCatName('');
+                  setMoveCat(
+                    existingCategories.includes(current)
+                      ? current
+                      : (existingCategories[0] ?? ''),
+                  );
+                  setEmptyCatMenuOpen(false);
+                  setRenameCatMenuOpen(false);
+                  setCatMenuOpen(true);
+                }}
+              >
+                選択をカテゴリ変更（{selectionCount}）
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)]"
+                onClick={() => {
+                  setCatCreateNew(true);
+                  setNewCatName('');
+                  setMoveCat('');
+                  setEmptyCatMenuOpen(false);
+                  setRenameCatMenuOpen(false);
+                  setCatMenuOpen(true);
+                }}
+              >
+                新規カテゴリを作成
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={existingCategories.length === 0}
+                className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)] disabled:opacity-40"
+                onClick={() => {
+                  setCatMenuOpen(false);
+                  setEmptyCatMenuOpen(false);
+                  setRenameFromCat(existingCategories[0] ?? '');
+                  setRenameToCat('');
+                  setRenameCatMenuOpen(true);
+                }}
+              >
+                カテゴリ名を変更
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={emptyCategories.length === 0}
+                className="w-full text-left px-3 py-2 hover:bg-[var(--input-bg)] disabled:opacity-40"
+                onClick={() => {
+                  setCatMenuOpen(false);
+                  setRenameCatMenuOpen(false);
+                  setEmptyCatMenuOpen(true);
+                }}
+              >
+                空のカテゴリを削除（{emptyCategories.length}）
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!hasSelection}
+                className="w-full text-left px-3 py-2 text-[var(--danger)] hover:bg-[var(--input-bg)] disabled:opacity-40"
+                onClick={() => void deletePaths(selectionTargets())}
+              >
+                選択を削除（{selectionCount}）
+              </button>
+              {catMenuOpen && (
+                <div className="border-t border-[var(--line)] px-3 py-2 space-y-2 bg-[var(--input-bg)]">
+                  {hasSelection ? (
+                    <>
+                      <label className="block text-xs text-[var(--muted)]">
+                        移動先カテゴリ
+                        <select
+                          className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                          value={
+                            catCreateNew
+                              ? NEW_CATEGORY_VALUE
+                              : existingCategories.includes(moveCat)
+                                ? moveCat
+                                : (existingCategories[0] ?? NEW_CATEGORY_VALUE)
+                          }
+                          onChange={(e) => {
+                            if (e.target.value === NEW_CATEGORY_VALUE) {
+                              setCatCreateNew(true);
+                              setMoveCat('');
+                            } else {
+                              setCatCreateNew(false);
+                              setMoveCat(e.target.value);
+                            }
+                          }}
+                          autoFocus
+                        >
+                          {existingCategories.map((c) => (
+                            <option key={c} value={c}>
+                              {c}（
+                              {categoryStats.find((s) => s.name === c)?.count ??
+                                0}
+                              ）
+                            </option>
+                          ))}
+                          <option value={NEW_CATEGORY_VALUE}>
+                            ＋ 新規カテゴリ…
+                          </option>
+                        </select>
+                      </label>
+                      {catCreateNew && (
+                        <label className="block text-xs text-[var(--muted)]">
+                          新規カテゴリ名
+                          <input
+                            className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                            value={newCatName}
+                            onChange={(e) => setNewCatName(e.target.value)}
+                            placeholder="例: skills"
+                          />
+                        </label>
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          busy ||
+                          !(catCreateNew ? newCatName.trim() : moveCat.trim())
+                        }
+                        onClick={() => void changeCategory()}
+                        className="w-full px-2 py-1.5 rounded bg-[var(--accent)] text-[var(--bg)] text-xs disabled:opacity-40"
+                      >
+                        変更を実行
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-xs text-[var(--muted)]">
+                        新規カテゴリ名（空フォルダ）
+                        <input
+                          className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                          value={newCatName}
+                          onChange={(e) => setNewCatName(e.target.value)}
+                          placeholder="例: skills"
+                          autoFocus
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={busy || !newCatName.trim()}
+                        onClick={() => void createEmptyCategory()}
+                        className="w-full px-2 py-1.5 rounded bg-[var(--accent)] text-[var(--bg)] text-xs disabled:opacity-40"
+                      >
+                        作成
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {emptyCatMenuOpen && (
+                <div className="border-t border-[var(--line)] px-3 py-2 space-y-1 bg-[var(--input-bg)]">
+                  <p className="text-[11px] text-[var(--muted)] mb-1">
+                    画像 0 件のカテゴリのみ削除できます
+                  </p>
+                  {emptyCategories.length === 0 ? (
+                    <p className="text-[11px] text-[var(--muted)]">該当なし</p>
+                  ) : (
+                    emptyCategories.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={busy}
+                        className="w-full text-left px-2 py-1.5 rounded text-xs text-[var(--danger)] hover:bg-[var(--panel)] disabled:opacity-40"
+                        onClick={() => void deleteEmptyCategory(name)}
+                      >
+                        削除: {name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+              {renameCatMenuOpen && (
+                <div className="border-t border-[var(--line)] px-3 py-2 space-y-2 bg-[var(--input-bg)]">
+                  <label className="block text-xs text-[var(--muted)]">
+                    変更前
+                    <select
+                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                      value={
+                        existingCategories.includes(renameFromCat)
+                          ? renameFromCat
+                          : (existingCategories[0] ?? '')
+                      }
+                      onChange={(e) => setRenameFromCat(e.target.value)}
+                      autoFocus
+                    >
+                      {existingCategories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}（
+                          {categoryStats.find((s) => s.name === c)?.count ?? 0}
+                          ）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-[var(--muted)]">
+                    変更後の名前
+                    <input
+                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                      value={renameToCat}
+                      onChange={(e) => setRenameToCat(e.target.value)}
+                      placeholder="新しいカテゴリ名"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      !renameFromCat.trim() ||
+                      !renameToCat.trim() ||
+                      renameFromCat.trim() === renameToCat.trim()
+                    }
+                    onClick={() => void renameCategory()}
+                    className="w-full px-2 py-1.5 rounded bg-[var(--accent)] text-[var(--bg)] text-xs disabled:opacity-40"
+                  >
+                    名前を変更
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {tab === 'library' && (
@@ -680,12 +1400,14 @@ export function AssetsPage() {
         <div
           ref={scrollRef}
           className={`rounded-lg border p-3 overflow-y-auto min-h-0 min-w-0 flex-1 ${
-            tab === 'library' && dragOver
-              ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-              : 'border-[var(--line)] bg-[var(--panel)]'
-          }`}
+            selectMode
+              ? 'border-[var(--accent)] bg-[var(--panel)]'
+              : tab === 'library' && dragOver
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
+                : 'border-[var(--line)] bg-[var(--panel)]'
+          } ${selectMode ? 'select-none touch-none' : ''}`}
           onDragEnter={
-            tab === 'library'
+            tab === 'library' && !selectMode
               ? (e) => {
                   e.preventDefault();
                   setDragOver(true);
@@ -693,7 +1415,7 @@ export function AssetsPage() {
               : undefined
           }
           onDragOver={
-            tab === 'library'
+            tab === 'library' && !selectMode
               ? (e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'copy';
@@ -702,14 +1424,14 @@ export function AssetsPage() {
               : undefined
           }
           onDragLeave={
-            tab === 'library'
+            tab === 'library' && !selectMode
               ? (e) => {
                   if (e.currentTarget === e.target) setDragOver(false);
                 }
               : undefined
           }
           onDrop={
-            tab === 'library'
+            tab === 'library' && !selectMode
               ? (e) => {
                   e.preventDefault();
                   void onDropUploads(e.dataTransfer);
@@ -717,37 +1439,67 @@ export function AssetsPage() {
               : undefined
           }
         >
+          {selectMode && (
+            <p className="text-xs text-[var(--muted)] mb-2 sticky top-0 bg-[var(--panel)]/95 backdrop-blur py-1 z-10">
+              選択モード: クリックで選択切替 / Shift+クリックで範囲 / ドラッグで連続選択
+            </p>
+          )}
           <div className="grid grid-cols-4 md:grid-cols-6 gap-2 content-start">
-            {visibleImages.map((a) => {
+            {visibleImages.map((a, indexInFiltered) => {
               const isChecked = checked.has(a.relativePath);
               const isFocus = selected?.relativePath === a.relativePath;
               return (
                 <div
                   key={a.relativePath}
+                  data-asset-path={a.relativePath}
                   className={`rounded border p-2 text-left relative ${
-                    isFocus
-                      ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                      : isChecked
+                    isChecked
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]'
+                      : isFocus
                         ? 'border-[var(--bounds)] bg-[var(--input-bg)]'
                         : 'border-[var(--line)] bg-[var(--input-bg)]'
-                  }`}
+                  } ${selectMode ? 'cursor-pointer' : ''}`}
+                  onPointerDown={(e) => {
+                    if (!selectMode || e.button !== 0) return;
+                    e.preventDefault();
+                    if (e.shiftKey && rangeAnchor !== null) {
+                      applyRangeCheck(rangeAnchor, indexInFiltered, true);
+                      void selectAsset(a);
+                      return;
+                    }
+                    beginPaintSelect(a.relativePath, isChecked);
+                    setRangeAnchor(indexInFiltered);
+                    void selectAsset(a);
+                  }}
+                  onPointerEnter={() => {
+                    paintSelectEnter(a.relativePath);
+                  }}
                 >
-                  <label className="absolute top-1.5 left-1.5 z-10 flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        toggleCheck(a.relativePath, e.target.checked);
-                      }}
-                      className="w-4 h-4 accent-[var(--accent)]"
-                    />
-                  </label>
+                  {!selectMode && (
+                    <label className="absolute top-1.5 left-1.5 z-10 flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleCheck(a.relativePath, e.target.checked);
+                          setRangeAnchor(indexInFiltered);
+                        }}
+                        className="w-4 h-4 accent-[var(--accent)]"
+                      />
+                    </label>
+                  )}
+                  {selectMode && isChecked && (
+                    <span className="absolute top-1.5 left-1.5 z-10 w-4 h-4 rounded bg-[var(--accent)] text-[var(--bg)] text-[10px] leading-4 text-center font-bold">
+                      ✓
+                    </span>
+                  )}
                   <button
                     type="button"
                     className="w-full text-left"
-                    onClick={() => {
-                      void selectAsset(a);
+                    onClick={(e) => {
+                      if (selectMode) return;
+                      handleItemPick(a, indexInFiltered, e);
                     }}
                   >
                     <LazyAssetThumb
@@ -819,9 +1571,7 @@ export function AssetsPage() {
           </h3>
           {!selected && (
             <p className="text-sm text-[var(--muted)]">
-              {tab === 'library'
-                ? 'チェックで一括トリム／取込。プレビューから複製・トリムも可。'
-                : '画像をクリックして詳細表示。'}
+              画像をクリックして詳細表示。複数選択の一括操作はヘッダーの ⋮ から。
             </p>
           )}
           {selected && (
@@ -840,6 +1590,9 @@ export function AssetsPage() {
               <p className="text-xs font-mono break-all text-[var(--muted)]">
                 {selected.relativePath}
               </p>
+              <p className="text-xs text-[var(--muted)]">
+                カテゴリ: <span className="font-mono">{selected.category}</span>
+              </p>
               {tab === 'project' && (
                 <p
                   className={`text-xs ${
@@ -854,23 +1607,94 @@ export function AssetsPage() {
                     : 'なし（未割当）'}
                 </p>
               )}
-              {tab === 'project' && (
+
+              <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
+                <label className="block text-xs text-[var(--muted)]">
+                  ファイル名
+                  <input
+                    className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--panel)]"
+                    value={renameName}
+                    onChange={(e) => setRenameName(e.target.value)}
+                  />
+                </label>
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void deleteSelected()}
-                  className="w-full px-3 py-2 rounded border border-[var(--danger)] text-[var(--danger)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+                  disabled={busy || !renameName.trim()}
+                  onClick={() => void renameSelected()}
+                  className="w-full px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--panel)] disabled:opacity-40"
                 >
-                  この画像を削除
+                  ファイル名を変更
                 </button>
+              </div>
+
+              {tab === 'library' && (
+                <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
+                  <h4 className="text-sm font-medium">AI 生成</h4>
+                  <p className="text-[11px] text-[var(--muted)] leading-relaxed">
+                    参照 {aiRefs.length} 枚（この画像＋チェック）を元に生成し、ライブラリへ
+                    <strong className="font-medium"> 別ファイル </strong>
+                    として保存します。
+                  </p>
+                  <p className="text-[10px] font-mono break-all text-[var(--muted)]">
+                    {aiRefs.join(', ') || '（参照なし）'}
+                  </p>
+                  <textarea
+                    className="w-full min-h-[88px] rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                    placeholder="手動プロンプト"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                  />
+                  <label className="block text-xs text-[var(--muted)]">
+                    保存先カテゴリ
+                    <select
+                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                      value={
+                        existingCategories.includes(aiDestCat)
+                          ? aiDestCat
+                          : aiDestCat ||
+                            selected.category ||
+                            existingCategories[0] ||
+                            ''
+                      }
+                      onChange={(e) => setAiDestCat(e.target.value)}
+                    >
+                      {!existingCategories.includes(aiDestCat) &&
+                        aiDestCat && (
+                          <option value={aiDestCat}>{aiDestCat}</option>
+                        )}
+                      {existingCategories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-[var(--muted)]">
+                    ファイル名（.webp）
+                    <input
+                      className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--panel)]"
+                      value={aiDestName}
+                      onChange={(e) => setAiDestName(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy || !aiPrompt.trim() || aiRefs.length === 0}
+                    onClick={() => void runAiGenerate()}
+                    className="w-full px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
+                  >
+                    生成してライブラリへ保存
+                  </button>
+                </div>
               )}
+
               {tab === 'library' && (
                 <>
                   <button
                     type="button"
                     disabled={busy}
                     onClick={trimSelectedOne}
-                    className="w-full px-3 py-2 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
+                    className="w-full px-3 py-2 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
                   >
                     この画像をトリム
                   </button>
@@ -886,18 +1710,42 @@ export function AssetsPage() {
                   ) : (
                     <div className="space-y-2 rounded border border-[var(--line)] p-3 bg-[var(--input-bg)]">
                       <label className="block text-xs text-[var(--muted)]">
-                        複製先パス（ライブラリ相対）
+                        複製先カテゴリ
+                        <select
+                          className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 text-sm bg-[var(--panel)]"
+                          value={
+                            existingCategories.includes(dupCat)
+                              ? dupCat
+                              : dupCat ||
+                                selected.category ||
+                                existingCategories[0] ||
+                                ''
+                          }
+                          onChange={(e) => setDupCat(e.target.value)}
+                          autoFocus
+                        >
+                          {!existingCategories.includes(dupCat) && dupCat && (
+                            <option value={dupCat}>{dupCat}</option>
+                          )}
+                          {existingCategories.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block text-xs text-[var(--muted)]">
+                        ファイル名
                         <input
                           className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--panel)]"
-                          value={dupPath}
-                          onChange={(e) => setDupPath(e.target.value)}
-                          autoFocus
+                          value={dupName}
+                          onChange={(e) => setDupName(e.target.value)}
                         />
                       </label>
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          disabled={busy}
+                          disabled={busy || !dupName.trim()}
                           onClick={() => void confirmDuplicate()}
                           className="flex-1 px-3 py-1.5 rounded bg-[var(--accent)] text-[var(--bg)] text-sm disabled:opacity-40"
                         >
@@ -930,16 +1778,16 @@ export function AssetsPage() {
                   >
                     この画像を取込
                   </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void deleteSelected()}
-                    className="w-full px-3 py-2 rounded border border-[var(--danger)] text-[var(--danger)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
-                  >
-                    この画像を削除
-                  </button>
                 </>
               )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void deletePaths([selected.relativePath])}
+                className="w-full px-3 py-2 rounded border border-[var(--danger)] text-[var(--danger)] text-sm bg-[var(--input-bg)] disabled:opacity-40"
+              >
+                この画像を削除
+              </button>
             </>
           )}
         </aside>

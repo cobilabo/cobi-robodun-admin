@@ -45,6 +45,11 @@ function wrap(): AsyncApi {
     'uploadLibraryFile',
     'deleteAsset',
     'copyLibraryAsset',
+    'moveAsset',
+    'createCategory',
+    'deleteCategory',
+    'renameCategory',
+    'generateLibraryImage',
     'exportBundle',
     'exportGameZip',
   ] as const;

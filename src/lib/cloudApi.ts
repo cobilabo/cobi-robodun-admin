@@ -8,11 +8,20 @@ import {
   ref,
   uploadBytes,
 } from 'firebase/storage';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   getDb,
+  getFirebaseApp,
   getFirebaseAuth,
   getFirebaseStorage,
 } from '../firebase/config';
+import {
+  categoryKeepPath,
+  categoryStoragePrefix,
+  isCategoryKeepPath,
+  normalizeCategoryName,
+  rewritePathCategory,
+} from './assetCategory';
 import { trimImageBlob } from './browserTrim';
 import type { AdminApi, AssetEntry } from './apiTypes';
 import { orderCatalogData, stringifyCatalog } from './catalogOrder';
@@ -310,8 +319,13 @@ export const cloudApi: AdminApi = {
   async library() {
     requireUser();
     const items = await listStorageTree(LIBRARY_PREFIX);
+    // Include .keep placeholders so empty categories remain visible
     const assets = await toAssetEntries(
-      items.filter((i) => kindOf(i.relativePath) === 'image'),
+      items.filter(
+        (i) =>
+          kindOf(i.relativePath) === 'image' ||
+          isCategoryKeepPath(i.relativePath),
+      ),
       false,
     );
     return { ok: true, libraryRoot: 'firebase://library', assets };
@@ -443,6 +457,190 @@ export const cloudApi: AdminApi = {
     });
     invalidateListCache(LIBRARY_PREFIX);
     return { ok: true, path: dest };
+  },
+
+  async moveAsset(srcPath, destPath, source = 'project') {
+    requireUser();
+    const src = srcPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const dest = destPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!src || !dest) throw new Error('srcPath / destPath が必要です');
+    if (src === dest) return { ok: true, path: dest };
+
+    const prefix = source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX;
+    const storage = getFirebaseStorage();
+    const srcRef = ref(storage, `${prefix}/${src}`);
+    const destRef = ref(storage, `${prefix}/${dest}`);
+    const blob = await getBlob(srcRef);
+    await uploadBytes(destRef, blob, {
+      contentType: blob.type || 'application/octet-stream',
+    });
+    await deleteObject(srcRef);
+    downloadUrlCache.delete(`${prefix}/${src}`);
+    downloadUrlCache.delete(`${prefix}/${dest}`);
+    invalidateListCache(prefix);
+
+    if (source === 'project') {
+      try {
+        await deleteDoc(doc(getDb(), 'assets', src.replace(/\//g, '__')));
+      } catch {
+        /* optional index */
+      }
+      await setDoc(
+        doc(getDb(), 'assets', dest.replace(/\//g, '__')),
+        {
+          path: dest,
+          updatedAt: serverTimestamp(),
+          updatedBy: getFirebaseAuth().currentUser?.email ?? null,
+        },
+        { merge: true },
+      );
+    }
+    return { ok: true, path: dest };
+  },
+
+  async createCategory(category, source = 'project') {
+    requireUser();
+    const cat = normalizeCategoryName(category);
+    const keepRel = categoryKeepPath(cat, source);
+    const prefix = source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX;
+    const storagePrefix = categoryStoragePrefix(cat, source);
+    const items = await listStorageTree(prefix);
+    const existing = items.filter((i) =>
+      i.relativePath.startsWith(storagePrefix),
+    );
+    if (existing.length > 0) {
+      return { ok: true, category: cat, path: keepRel };
+    }
+    await uploadBytes(
+      ref(getFirebaseStorage(), `${prefix}/${keepRel}`),
+      new Blob([''], { type: 'text/plain' }),
+      { contentType: 'text/plain' },
+    );
+    invalidateListCache(prefix);
+    return { ok: true, category: cat, path: keepRel };
+  },
+
+  async deleteCategory(category, source = 'project') {
+    requireUser();
+    const cat = normalizeCategoryName(category);
+    const prefix = source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX;
+    const storagePrefix = categoryStoragePrefix(cat, source);
+    const items = await listStorageTree(prefix);
+    const under = items.filter((i) =>
+      i.relativePath.startsWith(storagePrefix),
+    );
+    const images = under.filter(
+      (i) =>
+        kindOf(i.relativePath) === 'image' &&
+        !isCategoryKeepPath(i.relativePath),
+    );
+    if (images.length > 0) {
+      throw new Error(
+        `カテゴリ「${cat}」には画像が ${images.length} 件あるため削除できません`,
+      );
+    }
+    if (under.length === 0) {
+      throw new Error(`カテゴリ「${cat}」が見つかりません`);
+    }
+    for (const item of under) {
+      await deleteObject(ref(getFirebaseStorage(), item.fullPath));
+      downloadUrlCache.delete(item.fullPath);
+      if (source === 'project') {
+        try {
+          await deleteDoc(
+            doc(getDb(), 'assets', item.relativePath.replace(/\//g, '__')),
+          );
+        } catch {
+          /* optional */
+        }
+      }
+    }
+    invalidateListCache(prefix);
+    return { ok: true, category: cat, deleted: under.length };
+  },
+
+  async renameCategory(fromCategory, toCategory, source = 'project') {
+    requireUser();
+    const from = normalizeCategoryName(fromCategory);
+    const to = normalizeCategoryName(toCategory);
+    if (from === to) return { ok: true, from, to, moved: 0 };
+
+    const prefix = source === 'library' ? LIBRARY_PREFIX : PROJECT_PREFIX;
+    const fromPrefix = categoryStoragePrefix(from, source);
+    const toPrefix = categoryStoragePrefix(to, source);
+    const items = await listStorageTree(prefix);
+    const under = items.filter((i) =>
+      i.relativePath.startsWith(fromPrefix),
+    );
+    if (under.length === 0) {
+      throw new Error(`カテゴリ「${from}」が見つかりません`);
+    }
+    const destClash = items.filter(
+      (i) =>
+        i.relativePath.startsWith(toPrefix) &&
+        !i.relativePath.startsWith(fromPrefix),
+    );
+    if (destClash.length > 0) {
+      throw new Error(
+        `移動先カテゴリ「${to}」には既に ${destClash.length} 件のファイルがあります`,
+      );
+    }
+
+    const storage = getFirebaseStorage();
+    let moved = 0;
+    for (const item of under) {
+      const destRel = rewritePathCategory(
+        item.relativePath,
+        from,
+        to,
+        source,
+      );
+      const blob = await getBlob(ref(storage, item.fullPath));
+      await uploadBytes(ref(storage, `${prefix}/${destRel}`), blob, {
+        contentType: blob.type || 'application/octet-stream',
+      });
+      await deleteObject(ref(storage, item.fullPath));
+      downloadUrlCache.delete(item.fullPath);
+      downloadUrlCache.delete(`${prefix}/${destRel}`);
+      if (source === 'project') {
+        try {
+          await deleteDoc(
+            doc(getDb(), 'assets', item.relativePath.replace(/\//g, '__')),
+          );
+        } catch {
+          /* optional */
+        }
+        await setDoc(
+          doc(getDb(), 'assets', destRel.replace(/\//g, '__')),
+          {
+            path: destRel,
+            updatedAt: serverTimestamp(),
+            updatedBy: getFirebaseAuth().currentUser?.email ?? null,
+          },
+          { merge: true },
+        );
+      }
+      moved++;
+    }
+    invalidateListCache(prefix);
+    return { ok: true, from, to, moved };
+  },
+
+  async generateLibraryImage(referencePaths, prompt, destPath) {
+    requireUser();
+    const fn = httpsCallable(
+      getFunctions(getFirebaseApp(), 'asia-northeast1'),
+      'generateLibraryImage',
+    );
+    const result = await fn({
+      referencePaths,
+      prompt,
+      destPath,
+    });
+    const data = result.data as { ok?: boolean; path?: string };
+    if (!data?.path) throw new Error('生成結果のパスがありません');
+    invalidateListCache(LIBRARY_PREFIX);
+    return { ok: true, path: data.path };
   },
 
   async uploadAsset(destPath, file, contentType) {

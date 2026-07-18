@@ -65,15 +65,19 @@ export function listExternalLibrary(libRoot: string): AssetEntry[] {
   const rels: string[] = [];
   walkFiles(libRoot, libRoot, rels);
   return rels
-    .filter((r) => IMAGE_EXT.has(path.extname(r).toLowerCase()))
+    .filter((r) => {
+      const base = path.basename(r);
+      return IMAGE_EXT.has(path.extname(r).toLowerCase()) || base === '.keep';
+    })
     .map((relativePath) => {
       const full = path.join(libRoot, relativePath.replace(/\//g, path.sep));
       const st = fs.statSync(full);
+      const base = path.basename(relativePath);
       return {
         relativePath,
-        name: path.basename(relativePath),
+        name: base,
         category: relativePath.split('/')[0] || 'lib',
-        kind: 'image' as const,
+        kind: base === '.keep' ? ('other' as const) : ('image' as const),
         size: st.size,
         mtimeMs: st.mtimeMs,
       };

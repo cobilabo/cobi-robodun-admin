@@ -1,0 +1,15 @@
+---
+description: Admin 変更後は必ずビルドして Firebase にデプロイする
+alwaysApply: true
+---
+
+# cobi-robodun-admin デプロイ方針
+
+- 運用の正はクラウド Hosting（https://cobi-robodun-admin.web.app/）。ローカル Admin は使わない前提。
+- `cobi-robodun-admin` に機能追加・修正をしたら、確認依頼を待たず **毎回** ビルドしてデプロイする。
+- 手順:
+  1. Node 20 以上
+  2. `.env.production`（`VITE_DATA_MODE=cloud` + `VITE_FIREBASE_*`）で `npm run build`
+  3. `npx firebase deploy --only functions,hosting --project cobi-robodun-admin`
+  4. Functions の cleanup policy 警告で失敗したら `--force` を付けて再実行、または hosting だけ再デプロイして `index.html` 更新を確認
+- AI 生成は Cloud Function `generateLibraryImage`（`asia-northeast1`、Secret `OPEN_AI_API_KEY`）に依存する。

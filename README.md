@@ -36,8 +36,11 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 
 cp .firebaserc.example .firebaserc   # project id を編集
+# Secret Manager に OPEN_AI_API_KEY があること（AI 生成用）
+# 未作成なら: firebase functions:secrets:set OPEN_AI_API_KEY
+cd functions && npm install && cd ..
 npm run build
-npx firebase deploy --only firestore:rules,storage,hosting
+npx firebase deploy --only firestore:rules,storage,functions,hosting
 ```
 
 初回データ投入:

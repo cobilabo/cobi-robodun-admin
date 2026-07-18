@@ -46,9 +46,13 @@ npm run seed:firebase
 SEED_SCOPE=library npm run seed:firebase
 
 npx firebase deploy --only firestore:rules,storage
+# AI 生成用: Secret Manager に OPEN_AI_API_KEY（未作成なら secrets:set）
+cd functions && npm install && cd ..
 npm run build
-npx firebase deploy --only hosting
+npx firebase deploy --only functions,hosting
 ```
+
+Callable Function `generateLibraryImage`（`asia-northeast1`）がライブラリ向け AI 生成を担当します。
 
 5. Authentication でメンバー用ユーザーを作成
 6. Hosting URL を共有
