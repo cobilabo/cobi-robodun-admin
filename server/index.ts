@@ -88,10 +88,8 @@ app.get('/api/dashboard', (_req, res) => {
       const doc = raw as { cues?: unknown[] };
       counts[file] = Array.isArray(doc?.cues) ? doc.cues.length : 0;
     } else if (file === 'hud.json') {
-      const doc = raw as { equipmentSlots?: unknown[] };
-      counts[file] = Array.isArray(doc?.equipmentSlots)
-        ? doc.equipmentSlots.length
-        : 0;
+      const doc = raw as { assetSlots?: unknown[] };
+      counts[file] = Array.isArray(doc?.assetSlots) ? doc.assetSlots.length : 0;
     } else {
       counts[file] = Array.isArray(raw) ? raw.length : 0;
     }
@@ -134,7 +132,7 @@ app.get('/api/catalogs', (_req, res) => {
         const cues = (raw as { cues?: unknown[] })?.cues;
         count = Array.isArray(cues) ? cues.length : 0;
       } else if (file === 'hud.json') {
-        const slots = (raw as { equipmentSlots?: unknown[] })?.equipmentSlots;
+        const slots = (raw as { assetSlots?: unknown[] })?.assetSlots;
         count = Array.isArray(slots) ? slots.length : 0;
       } else {
         count = Array.isArray(raw) ? raw.length : 0;
@@ -165,15 +163,7 @@ app.get('/api/catalogs/:name', (req, res) => {
         file,
         data: orderCatalogData('hud', {
           appVersion: '1.0.0',
-          equipmentSlots: [
-            { slot: 'Weapon', labelJa: '武器', icon: 'UI/hud/slot_weapon.png' },
-            { slot: 'Armor', labelJa: '防具', icon: 'UI/hud/slot_armor.png' },
-            {
-              slot: 'Core',
-              labelJa: 'コア',
-              icon: 'UI/hud/slot_accessory.png',
-            },
-          ],
+          assetSlots: [],
         }),
       });
       return;

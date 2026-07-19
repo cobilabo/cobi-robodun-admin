@@ -223,7 +223,7 @@ export function validateGameContent(root: string): Issue[] {
   } else {
     const hud = JSON.parse(readText(hudPath)) as {
       appVersion?: unknown;
-      equipmentSlots?: Record<string, unknown>[];
+      assetSlots?: Record<string, unknown>[];
     };
     if (!String(hud.appVersion ?? '').trim()) {
       issues.push({
@@ -232,47 +232,40 @@ export function validateGameContent(root: string): Issue[] {
         message: 'appVersion が空です',
       });
     }
-    const slots = Array.isArray(hud.equipmentSlots) ? hud.equipmentSlots : [];
-    if (slots.length === 0) {
+    const assets = Array.isArray(hud.assetSlots) ? hud.assetSlots : [];
+    if (assets.length === 0) {
       issues.push({
-        level: 'error',
+        level: 'warning',
         catalog: 'hud',
-        message: 'equipmentSlots が空です',
+        message: 'assetSlots が空です',
       });
     }
-    const seenSlots = new Set<string>();
-    for (const [i, slot] of slots.entries()) {
-      const slotKey = String(slot.slot ?? '').trim();
+    const seenKeys = new Set<string>();
+    for (const [i, slot] of assets.entries()) {
+      const key = String(slot.key ?? '').trim();
       const icon = String(slot.icon ?? '').trim();
-      if (!slotKey) {
+      if (!key) {
         issues.push({
           level: 'error',
           catalog: 'hud',
-          id: `slot[${i}]`,
-          message: 'slot が空です',
+          id: `asset[${i}]`,
+          message: 'key が空です',
         });
-      } else if (seenSlots.has(slotKey)) {
+      } else if (seenKeys.has(key)) {
         issues.push({
           level: 'error',
           catalog: 'hud',
-          id: slotKey,
-          message: `slot が重複: ${slotKey}`,
+          id: key,
+          message: `key が重複: ${key}`,
         });
       } else {
-        seenSlots.add(slotKey);
+        seenKeys.add(key);
       }
-      if (!icon) {
+      if (icon && !assetExists(root, icon)) {
         issues.push({
           level: 'error',
           catalog: 'hud',
-          id: slotKey || `slot[${i}]`,
-          message: 'icon が未設定です',
-        });
-      } else if (!assetExists(root, icon)) {
-        issues.push({
-          level: 'error',
-          catalog: 'hud',
-          id: slotKey || `slot[${i}]`,
+          id: key || `asset[${i}]`,
           message: `icon ファイル無し: ${icon}`,
         });
       }

@@ -36,7 +36,6 @@ type Row = Record<string, unknown>;
 type EditMode = 'form' | 'json';
 type HudDoc = {
   appVersion: string;
-  equipmentSlots: Row[];
   assetSlots: Row[];
 };
 
@@ -67,52 +66,35 @@ function normalizeHud(raw: unknown): HudDoc {
     : [...DEFAULT_HUD.assetSlots];
   return {
     appVersion: doc.appVersion ?? DEFAULT_HUD.appVersion,
-    equipmentSlots: Array.isArray(doc.equipmentSlots) ? doc.equipmentSlots : [],
     assetSlots: mergeDefaultHudAssetSlots(slots as Row[]),
   };
 }
 
 function flattenHudRows(doc: HudDoc): Row[] {
-  return [
-    ...doc.equipmentSlots.map((s) => ({ ...s, kind: 'equipment' })),
-    ...doc.assetSlots.map((s) => ({ ...s, kind: 'asset' })),
-  ];
+  return doc.assetSlots.map((s) => ({ ...s, kind: 'asset' }));
 }
 
-function splitHudRows(rows: Row[]): { equipmentSlots: Row[]; assetSlots: Row[] } {
-  const equipmentSlots: Row[] = [];
+function splitHudRows(rows: Row[]): { assetSlots: Row[] } {
   const assetSlots: Row[] = [];
   for (const r of rows) {
-    if (r.kind === 'asset' || (!r.slot && r.key)) {
-      const { kind: _k, ...rest } = r;
-      assetSlots.push({
-        key: String(rest.key ?? ''),
-        labelJa: String(rest.labelJa ?? ''),
-        icon: String(rest.icon ?? ''),
-        noteJa: String(rest.noteJa ?? ''),
-        ...(rest.useEquippedWeapon ? { useEquippedWeapon: true } : {}),
-      });
-    } else {
-      const { kind: _k, ...rest } = r;
-      equipmentSlots.push({
-        slot: String(rest.slot ?? 'Weapon'),
-        labelJa: String(rest.labelJa ?? ''),
-        icon: String(rest.icon ?? ''),
-      });
-    }
+    // 旧 equipment 行は破棄（ゲーム固定スロットへ移行済み）
+    if (r.kind === 'equipment' || (r.slot && !r.key)) continue;
+    const { kind: _k, ...rest } = r;
+    assetSlots.push({
+      key: String(rest.key ?? ''),
+      labelJa: String(rest.labelJa ?? ''),
+      icon: String(rest.icon ?? ''),
+      noteJa: String(rest.noteJa ?? ''),
+      ...(rest.useEquippedWeapon ? { useEquippedWeapon: true } : {}),
+    });
   }
-  return { equipmentSlots, assetSlots };
+  return { assetSlots };
 }
 
 function hudSlotLabel(row: Row): string {
-  if (row.kind === 'asset' || row.key) {
-    const key = String(row.key ?? '');
-    const label = String(row.labelJa ?? '');
-    return label ? `${key} — ${label}` : key || '(asset)';
-  }
-  const slot = String(row.slot ?? '');
+  const key = String(row.key ?? '');
   const label = String(row.labelJa ?? '');
-  return label ? `${slot} — ${label}` : slot || '(empty)';
+  return label ? `${key} — ${label}` : key || '(asset)';
 }
 
 function rowImagePath(row: Row): string {
@@ -120,10 +102,9 @@ function rowImagePath(row: Row): string {
 }
 
 function toHudPayload(appVersion: string, rows: Row[]): HudDoc {
-  const { equipmentSlots, assetSlots } = splitHudRows(rows);
+  const { assetSlots } = splitHudRows(rows);
   return orderCatalogData('hud', {
     appVersion,
-    equipmentSlots,
     assetSlots,
   }) as HudDoc;
 }
@@ -131,11 +112,7 @@ function toHudPayload(appVersion: string, rows: Row[]): HudDoc {
 function formatEditorJson(catalogId: string, rows: Row[], appVersion: string): string {
   if (catalogId === 'hud') {
     const doc = toHudPayload(appVersion, rows);
-    return `${JSON.stringify(
-      { equipmentSlots: doc.equipmentSlots, assetSlots: doc.assetSlots },
-      null,
-      2,
-    )}\n`;
+    return `${JSON.stringify({ assetSlots: doc.assetSlots }, null, 2)}\n`;
   }
   return stringifyCatalog(catalogId, rows);
 }
@@ -173,9 +150,7 @@ export function CatalogEditor() {
       setJsonText(formatEditorJson('hud', flat, doc.appVersion));
       setJsonParseError('');
       setIssues([]);
-      setStatus(
-        `hud: 装備${doc.equipmentSlots.length} / 見た目${doc.assetSlots.length}`,
-      );
+      setStatus(`hud: 見た目 ${doc.assetSlots.length} 枠`);
       return;
     }
     const data = orderCatalogData(name, r.data) as Row[];
@@ -319,21 +294,13 @@ export function CatalogEditor() {
 
   const addRow = () => {
     if (isHud) {
-      const asAsset = selected?.kind === 'asset' || Boolean(selected?.key);
-      const template: Row = asAsset
-        ? {
-            kind: 'asset',
-            key: `ui.custom_${Date.now().toString(36)}`,
-            labelJa: '新規',
-            icon: '',
-            noteJa: '',
-          }
-        : {
-            kind: 'equipment',
-            slot: String(selected?.slot ?? 'Weapon'),
-            labelJa: '新規',
-            icon: '',
-          };
+      const template: Row = {
+        kind: 'asset',
+        key: `ui.custom_${Date.now().toString(36)}`,
+        labelJa: '新規',
+        icon: '',
+        noteJa: '',
+      };
       setRows((prev) => [...prev, template]);
       setSelectedIdx(rows.length);
       setDirty(true);

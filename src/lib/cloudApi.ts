@@ -161,7 +161,7 @@ async function loadAllCatalogs(): Promise<Record<string, unknown>> {
         id === 'audio'
           ? { version: 1, cues: [] }
           : id === 'hud'
-            ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+            ? { ...DEFAULT_HUD, assetSlots: [...DEFAULT_HUD.assetSlots] }
             : [],
       );
     } else {
@@ -254,7 +254,7 @@ export const cloudApi: AdminApi = {
           : id === 'audio'
             ? { version: 1, cues: [] }
             : id === 'hud'
-              ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+              ? { ...DEFAULT_HUD, assetSlots: [...DEFAULT_HUD.assetSlots] }
               : [];
         return {
           id,
@@ -276,7 +276,7 @@ export const cloudApi: AdminApi = {
         name === 'audio'
           ? { version: 1, cues: [] }
           : name === 'hud'
-            ? { ...DEFAULT_HUD, equipmentSlots: [...DEFAULT_HUD.equipmentSlots] }
+            ? { ...DEFAULT_HUD, assetSlots: [...DEFAULT_HUD.assetSlots] }
             : [],
       );
       return {
@@ -354,6 +354,8 @@ export const cloudApi: AdminApi = {
 
   async assets(sub = '') {
     requireUser();
+    // Always re-list: Storage may change outside this tab (CLI / other device).
+    invalidateListCache(PROJECT_PREFIX);
     const items = await listStorageTree(PROJECT_PREFIX);
     const filtered = sub
       ? items.filter((i) => i.relativePath.replace(/\\/g, '/').startsWith(sub.replace(/\\/g, '/')))
@@ -365,6 +367,8 @@ export const cloudApi: AdminApi = {
 
   async library() {
     requireUser();
+    // Always re-list: Storage may change outside this tab (CLI / other device).
+    invalidateListCache(LIBRARY_PREFIX);
     const items = await listStorageTree(LIBRARY_PREFIX);
     // Include .keep placeholders so empty categories remain visible
     const assets = await toAssetEntries(

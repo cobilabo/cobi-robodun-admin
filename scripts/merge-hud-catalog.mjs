@@ -1,8 +1,9 @@
 /**
  * Firestore の hud カタログを、DEFAULT 枠とマージして更新する。
  * 既存の icon / note 等はキー単位で保持。不足キーだけ追加。
+ * equipmentSlots は廃止（ゲーム固定）のため書き込み時に除去する。
  *
- *   GAME_ROOT=../cobi-robodun node scripts/merge-hud-catalog.mjs
+ *   GAME_ROOT=../cobi-robodun npm run merge:hud
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,7 +55,7 @@ const DEFAULT_ASSET_SLOTS = [
     key: 'ui.slotEmpty',
     labelJa: '空スロット',
     icon: '',
-    noteJa: '武器・防具・コア・未取得スキル枠の共通デフォルト',
+    noteJa: '未装備・未取得スキル枠の共通デフォルト',
   },
   { key: 'ui.icon.hp', labelJa: 'HPアイコン', icon: '', noteJa: 'ステータス選択・表示用' },
   {
@@ -88,12 +89,6 @@ const DEFAULT_ASSET_SLOTS = [
   { key: 'tile.coin', labelJa: '廃品タイル', icon: '', noteJa: '貯まると開発へ' },
 ];
 
-const DEFAULT_EQUIPMENT = [
-  { slot: 'Weapon', labelJa: '武器', icon: '' },
-  { slot: 'Armor', labelJa: '防具', icon: '' },
-  { slot: 'Core', labelJa: 'コア', icon: '' },
-];
-
 function mergeAssetSlots(existing) {
   const byKey = new Map();
   for (const s of existing || []) {
@@ -111,7 +106,6 @@ function mergeAssetSlots(existing) {
         key: def.key,
         labelJa: cur.labelJa || def.labelJa,
         noteJa: cur.noteJa || def.noteJa,
-        // icon はクラウド既存を優先（空文字も既存として残す）
         icon: cur.icon ?? def.icon ?? '',
       });
       byKey.delete(def.key);
@@ -120,43 +114,6 @@ function mergeAssetSlots(existing) {
     }
   }
   for (const leftover of byKey.values()) merged.push(leftover);
-  return merged;
-}
-
-function mergeEquipmentSlots(existing, assetSlots) {
-  const bySlot = new Map();
-  for (const s of existing || []) {
-    const slot = String(s?.slot ?? '').trim();
-    if (slot) bySlot.set(slot, { ...s });
-  }
-
-  // 3スロットが同一アイコンなら ui.slotEmpty へ集約（未設定時のみ）
-  const icons = [...bySlot.values()].map((s) => String(s.icon ?? '').trim()).filter(Boolean);
-  const allSame = icons.length >= 2 && icons.every((i) => i === icons[0]);
-  if (allSame) {
-    const empty = assetSlots.find((a) => a.key === 'ui.slotEmpty');
-    if (empty && !String(empty.icon ?? '').trim()) {
-      empty.icon = icons[0];
-      console.log('  moved shared equip icon → ui.slotEmpty:', icons[0]);
-    }
-  }
-
-  const merged = [];
-  for (const def of DEFAULT_EQUIPMENT) {
-    const cur = bySlot.get(def.slot);
-    if (cur) {
-      const icon = allSame ? '' : String(cur.icon ?? '');
-      merged.push({
-        slot: def.slot,
-        labelJa: cur.labelJa || def.labelJa,
-        icon,
-      });
-      bySlot.delete(def.slot);
-    } else {
-      merged.push({ ...def });
-    }
-  }
-  for (const leftover of bySlot.values()) merged.push(leftover);
   return merged;
 }
 
@@ -178,25 +135,36 @@ async function main() {
     projectId,
     cloudExists: snap.exists,
     cloudAssets: Array.isArray(cloud.assetSlots) ? cloud.assetSlots.length : 0,
-    localAssets: Array.isArray(local?.assetSlots) ? local.assetSlots.length : 0,
+    droppedEquipment: Array.isArray(cloud.equipmentSlots)
+      ? cloud.equipmentSlots.length
+      : 0,
   });
 
-  // クラウド優先でマージ（無ければローカル）
+  // 旧 equipmentSlots の共通アイコンを ui.slotEmpty へ引き継ぎ（空のときのみ）
+  const legacyEquip = Array.isArray(cloud.equipmentSlots) ? cloud.equipmentSlots : [];
+  const legacyIcons = legacyEquip
+    .map((s) => String(s?.icon ?? '').trim())
+    .filter(Boolean);
+  const sharedLegacy =
+    legacyIcons.length >= 2 && legacyIcons.every((i) => i === legacyIcons[0])
+      ? legacyIcons[0]
+      : '';
+
   const baseAssets = Array.isArray(cloud.assetSlots)
     ? cloud.assetSlots
     : Array.isArray(local?.assetSlots)
       ? local.assetSlots
       : [];
-  const baseEquip = Array.isArray(cloud.equipmentSlots)
-    ? cloud.equipmentSlots
-    : Array.isArray(local?.equipmentSlots)
-      ? local.equipmentSlots
-      : [];
 
   const assetSlots = mergeAssetSlots(baseAssets);
-  const equipmentSlots = mergeEquipmentSlots(baseEquip, assetSlots);
+  if (sharedLegacy) {
+    const empty = assetSlots.find((a) => a.key === 'ui.slotEmpty');
+    if (empty && !String(empty.icon ?? '').trim()) {
+      empty.icon = sharedLegacy;
+      console.log('  moved shared equip icon → ui.slotEmpty:', sharedLegacy);
+    }
+  }
 
-  // ローカルにだけある icon（タイル等）でクラウドが空なら補完
   if (local?.assetSlots) {
     const localByKey = new Map(
       local.assetSlots.map((s) => [String(s.key ?? ''), s]),
@@ -214,7 +182,6 @@ async function main() {
   const data = {
     appVersion: String(cloud.appVersion || local?.appVersion || '1.0.0'),
     assetSlots,
-    equipmentSlots,
   };
 
   await ref.set(
@@ -227,7 +194,7 @@ async function main() {
   );
 
   console.log('wrote hud assetSlots:', data.assetSlots.map((s) => s.key).join(', '));
-  console.log('equipment:', data.equipmentSlots.map((s) => `${s.slot}:${s.icon || '(empty)'}`).join(' | '));
+  console.log('equipmentSlots removed from cloud document');
   console.log('done');
 }
 

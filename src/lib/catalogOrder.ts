@@ -204,24 +204,8 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
   if (catalogId === 'hud') {
     const doc = (data && typeof data === 'object' ? data : {}) as {
       appVersion?: string;
-      equipmentSlots?: unknown[];
       assetSlots?: unknown[];
     };
-    const slots = Array.isArray(doc.equipmentSlots)
-      ? doc.equipmentSlots
-          .filter(
-            (r): r is Record<string, unknown> =>
-              !!r && typeof r === 'object' && !Array.isArray(r),
-          )
-          .map((r) => orderRow({ ...r, kind: 'equipment' }, 'hud_slot'))
-      : [];
-    slots.sort((a, b) => {
-      const sa = String(a.slot ?? '');
-      const sb = String(b.slot ?? '');
-      const ia = HUD_SLOT_ORDER.indexOf(sa);
-      const ib = HUD_SLOT_ORDER.indexOf(sb);
-      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || sa.localeCompare(sb);
-    });
     const assets = Array.isArray(doc.assetSlots)
       ? doc.assetSlots
           .filter(
@@ -232,7 +216,6 @@ export function orderCatalogData(catalogId: string, data: unknown): unknown {
       : [];
     return {
       appVersion: String(doc.appVersion ?? '1.0.0'),
-      equipmentSlots: slots.map(({ kind: _k, ...rest }) => rest),
       assetSlots: assets.map(({ kind: _k, ...rest }) => rest),
     };
   }

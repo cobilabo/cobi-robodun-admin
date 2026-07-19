@@ -167,7 +167,7 @@ export function OpsPage() {
           </li>
           <li>
             HUD: <code className="text-xs">data/hud.json</code> の
-            equipmentSlots はカタログ（HUD）で編集
+            見た目枠（assetSlots）はカタログ（HUD）で編集。装備部位はゲーム固定。
           </li>
           <li>画像パス: UI/カテゴリ/ファイル.png（assets 基準）</li>
           <li>音声パス: audio/bgm|se|ui/....ogg</li>

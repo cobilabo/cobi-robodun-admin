@@ -46,12 +46,9 @@ export function catalogEntryCount(id: string, data: unknown): number {
   if (shape === 'object') {
     if (id === 'hud') {
       const doc = data as {
-        equipmentSlots?: unknown[];
         assetSlots?: unknown[];
       } | null;
-      const eq = Array.isArray(doc?.equipmentSlots) ? doc!.equipmentSlots!.length : 0;
-      const as = Array.isArray(doc?.assetSlots) ? doc!.assetSlots!.length : 0;
-      return eq + as;
+      return Array.isArray(doc?.assetSlots) ? doc!.assetSlots!.length : 0;
     }
     return data && typeof data === 'object' ? 1 : 0;
   }
@@ -60,23 +57,6 @@ export function catalogEntryCount(id: string, data: unknown): number {
 
 export const DEFAULT_HUD = {
   appVersion: '1.0.0',
-  equipmentSlots: [
-    {
-      slot: 'Weapon',
-      labelJa: '武器',
-      icon: '',
-    },
-    {
-      slot: 'Armor',
-      labelJa: '防具',
-      icon: '',
-    },
-    {
-      slot: 'Core',
-      labelJa: 'コア',
-      icon: '',
-    },
-  ],
   assetSlots: [
     {
       key: 'ui.button',
@@ -107,7 +87,7 @@ export const DEFAULT_HUD = {
       key: 'ui.slotEmpty',
       labelJa: '空スロット',
       icon: '',
-      noteJa: '武器・防具・コア・未取得スキル枠の共通デフォルト',
+      noteJa: '未装備・未取得スキル枠の共通デフォルト',
     },
     { key: 'ui.icon.hp', labelJa: 'HPアイコン', icon: '', noteJa: 'ステータス選択・表示用' },
     {
