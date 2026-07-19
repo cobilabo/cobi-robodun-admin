@@ -1,5 +1,18 @@
 import { zipSync, strToU8 } from 'fflate';
-import { deleteDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  setDoc,
+  serverTimestamp,
+  Timestamp,
+} from 'firebase/firestore';
 import {
   deleteObject,
   getBlob,
@@ -282,8 +295,42 @@ export const cloudApi: AdminApi = {
   async saveCatalog(name, data) {
     const user = requireUser();
     const ordered = orderCatalogData(name, data);
+    const db = getDb();
+    const catalogRef = doc(db, 'catalogs', name);
+
+    // 上書き前の内容を履歴へ（クラウド側の誤消対策）
+    let backupPath: string | null = null;
+    try {
+      const prev = await getDoc(catalogRef);
+      if (prev.exists()) {
+        const prevData = prev.data();
+        const now = Timestamp.now();
+        const revRef = await addDoc(collection(db, 'catalogHistory', name, 'revisions'), {
+          data: prevData.data ?? null,
+          savedAt: now,
+          savedAtServer: serverTimestamp(),
+          savedBy: user.email ?? user.uid,
+          sourceUpdatedAt: prevData.updatedAt ?? null,
+          sourceUpdatedBy: prevData.updatedBy ?? null,
+        });
+        backupPath = `catalogHistory/${name}/revisions/${revRef.id}`;
+
+        // 直近 30 件を超えた古い履歴を削除
+        const histQ = query(
+          collection(db, 'catalogHistory', name, 'revisions'),
+          orderBy('savedAt', 'desc'),
+          limit(40),
+        );
+        const histSnap = await getDocs(histQ);
+        const stale = histSnap.docs.slice(30);
+        await Promise.all(stale.map((d) => deleteDoc(d.ref)));
+      }
+    } catch (err) {
+      console.warn('catalog history backup failed', err);
+    }
+
     await setDoc(
-      doc(getDb(), 'catalogs', name),
+      catalogRef,
       {
         data: ordered,
         updatedAt: serverTimestamp(),
@@ -295,7 +342,7 @@ export const cloudApi: AdminApi = {
     catalogs[name] = ordered;
     const paths = await assetPathList();
     const issues = validateCatalogBundle(catalogs, paths);
-    return { ok: true, backupPath: null, issues };
+    return { ok: true, backupPath, issues };
   },
 
   async validate() {

@@ -64,22 +64,59 @@ export const DEFAULT_HUD = {
     {
       slot: 'Weapon',
       labelJa: '武器',
-      icon: 'UI/hud/slot_weapon.png',
+      icon: '',
     },
     {
       slot: 'Armor',
       labelJa: '防具',
-      icon: 'UI/hud/slot_armor.png',
+      icon: '',
     },
     {
       slot: 'Core',
       labelJa: 'コア',
-      icon: 'UI/hud/slot_accessory.png',
+      icon: '',
     },
   ],
   assetSlots: [
-    { key: 'ui.button', labelJa: 'ボタン', icon: '', noteJa: 'タイトル／選択肢ボタン背景' },
+    {
+      key: 'ui.button',
+      labelJa: 'ボタン',
+      icon: '',
+      noteJa: 'コンティニュー／ニューゲーム／リーダーズボード／オプション／戻る／中断／閉じる',
+    },
     { key: 'ui.panel', labelJa: 'パネル', icon: '', noteJa: 'ステータスチップ・枠パネル' },
+    {
+      key: 'ui.panelTop',
+      labelJa: 'パネル上部あしらい',
+      icon: '',
+      noteJa: 'HUD／モーダルパネルの上端装飾',
+    },
+    {
+      key: 'ui.panelBottom',
+      labelJa: 'パネル下部あしらい',
+      icon: '',
+      noteJa: 'HUD／モーダルパネルの下端装飾',
+    },
+    {
+      key: 'ui.selectBackground',
+      labelJa: '選択背景',
+      icon: '',
+      noteJa: 'キャラ／ステータス／スキル／装備の選択肢行背景',
+    },
+    {
+      key: 'ui.slotEmpty',
+      labelJa: '空スロット',
+      icon: '',
+      noteJa: '武器・防具・コア・未取得スキル枠の共通デフォルト',
+    },
+    { key: 'ui.icon.hp', labelJa: 'HPアイコン', icon: '', noteJa: 'ステータス選択・表示用' },
+    {
+      key: 'ui.icon.atk',
+      labelJa: 'STRアイコン',
+      icon: '',
+      noteJa: 'ATK／STR。ステータス選択・表示用',
+    },
+    { key: 'ui.icon.dex', labelJa: 'DEXアイコン', icon: '', noteJa: 'ステータス選択・表示用' },
     {
       key: 'ui.homeBackground',
       labelJa: 'ホーム背景',

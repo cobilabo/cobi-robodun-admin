@@ -9,6 +9,11 @@ service cloud.firestore {
       allow read, write: if signedIn();
     }
 
+    // 保存直前スナップショット（誤上書き復旧用）
+    match /catalogHistory/{catalogId}/revisions/{revisionId} {
+      allow read, write: if signedIn();
+    }
+
     match /assets/{assetId} {
       allow read, write: if signedIn();
     }

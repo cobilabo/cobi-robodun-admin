@@ -14,6 +14,7 @@
     "sync-check": "tsx scripts/sync-check.ts",
     "bump-content-version": "tsx scripts/bump-content-version.ts",
     "seed:firebase": "node scripts/seed-to-firebase.mjs",
+    "pull:catalogs": "node scripts/pull-catalogs-from-firebase.mjs",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:functions": "firebase deploy --only functions",
     "deploy:all": "npm run build && firebase deploy --only functions,hosting",
