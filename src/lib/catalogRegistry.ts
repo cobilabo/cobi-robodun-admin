@@ -150,6 +150,17 @@ export const EFFECT_TYPES = [
 /** 装備部位（ゲーム EquipSlot と同期） */
 export const EQUIP_SLOTS = ['Weapon', 'Armor', 'Core'] as const;
 
+/** 装備ユニーク（ゲーム EquipUniqueKinds と同期） */
+export const EQUIP_UNIQUE_KINDS = [
+  { value: '', label: 'なし' },
+  { value: 'crit', label: 'クリティカル（%でダメ2倍）' },
+  { value: 'cleave', label: '全体攻撃（他敵に与ダメの%）' },
+  { value: 'reflect', label: '攻撃反射（%）' },
+  { value: 'armor_regen', label: '自動修復（毎ターン バリアMaxの%）' },
+  { value: 'hp_regen', label: '持続回復（毎ターン HPMaxの%）' },
+  { value: 'food_surge', label: '補給連動（食料1マスで次戦闘 ATK/DEX+）' },
+] as const;
+
 /** 行動 logic（ゲーム BehaviorInterpreter と同期） */
 export const BEHAVIOR_LOGICS = [
   'act_error',

@@ -82,6 +82,8 @@ const CAPTIONS: Record<string, string> = {
   maxArmorBonus: 'バリア+',
   shieldHealBonus: '電力+',
   potionHealBonus: '食料+',
+  uniqueKind: 'ユニーク',
+  uniqueValue: 'ユニーク値',
   type: 'type',
   baseAmount: '基本値',
   perLevel: 'Lvごと',
@@ -185,6 +187,10 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'shieldHealBonus':
     case 'potionHealBonus':
       return '補正';
+    case 'uniqueKind':
+      return 'crit / cleave / reflect / armor_regen / hp_regen / food_surge';
+    case 'uniqueValue':
+      return '装備Lvで乗算（%または加算）';
     case 'type':
       return catalogId === 'effects'
         ? 'HealPercent / DamageAllAtk など'

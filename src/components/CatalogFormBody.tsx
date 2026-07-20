@@ -12,7 +12,7 @@ import {
   keysForRow,
   type FormBlock,
 } from '../lib/catalogOrder';
-import { BEHAVIOR_LOGICS, EFFECT_TYPES, EQUIP_SLOTS } from '../lib/catalogRegistry';
+import { BEHAVIOR_LOGICS, EFFECT_TYPES, EQUIP_SLOTS, EQUIP_UNIQUE_KINDS } from '../lib/catalogRegistry';
 import { UiButton, UiInput, UiSelect, UiTextarea } from './ui';
 
 type Row = Record<string, unknown>;
@@ -178,6 +178,30 @@ export function CatalogFormBody({
             ))}
             {current &&
             !(EQUIP_SLOTS as readonly string[]).includes(current) ? (
+              <option value={current}>{current}（未登録）</option>
+            ) : null}
+          </UiSelect>
+        </label>
+      );
+    }
+
+    if (key === 'uniqueKind' && catalogId === 'equipment') {
+      const current = String(value ?? '');
+      const known = EQUIP_UNIQUE_KINDS.some((t) => t.value === current);
+      return (
+        <label key={key} className="block min-w-0">
+          {caption}
+          <UiSelect
+            className={fieldCls}
+            value={current}
+            onChange={(e) => onUpdate(key, e.target.value)}
+          >
+            {EQUIP_UNIQUE_KINDS.map((t) => (
+              <option key={t.value || 'none'} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+            {current && !known ? (
               <option value={current}>{current}（未登録）</option>
             ) : null}
           </UiSelect>

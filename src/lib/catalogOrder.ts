@@ -64,6 +64,8 @@ const ORDERS: Record<string, string[]> = {
     'maxArmorBonus',
     'shieldHealBonus',
     'potionHealBonus',
+    'uniqueKind',
+    'uniqueValue',
     'spawnTurn',
     'icon',
   ],
@@ -117,6 +119,7 @@ export const FORM_LAYOUTS: Record<string, FormBlock[]> = {
     { kind: 'row', keys: ['id', 'nameJa', 'slot'], cols: 3 },
     { kind: 'field', key: 'descriptionJa' },
     { kind: 'bonuses' },
+    { kind: 'row', keys: ['uniqueKind', 'uniqueValue'], cols: 2 },
     { kind: 'field', key: 'spawnTurn' },
   ],
   effects: [
