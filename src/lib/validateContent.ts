@@ -184,43 +184,53 @@ export function validateCatalogBundle(
 
   for (const cue of audioCues) {
     const id = String(cue.id ?? '');
+    const filesFromArr = Array.isArray(cue.files)
+      ? cue.files.map((f) => String(f ?? '').trim()).filter(Boolean)
+      : [];
     const file = typeof cue.file === 'string' ? cue.file.trim() : '';
-    if (file && !assetExists(pathSet, file)) {
-      issues.push({
-        level: 'error',
-        catalog: 'audio',
-        id,
-        message: `音声ファイル無し: ${file}`,
-      });
-    }
-    if (!file) {
+    const activeFiles = filesFromArr.length > 0 ? [...new Set(filesFromArr)] : file ? [file] : [];
+
+    if (activeFiles.length === 0) {
       issues.push({
         level: 'warning',
         catalog: 'audio',
         id,
-        message: 'file 未割当',
+        message: '有効音声未割当（files / file）',
       });
     }
-    if (file && !file.toLowerCase().endsWith('.ogg')) {
-      issues.push({
-        level: 'warning',
-        catalog: 'audio',
-        id,
-        message: `有効 file が ogg ではありません: ${file}`,
-      });
-    }
-    const candidates = Array.isArray(cue.candidates) ? cue.candidates : [];
-    if (file && candidates.length > 0) {
-      const inList = candidates.some(
-        (c) => typeof c === 'object' && c && String((c as { file?: string }).file ?? '') === file,
-      );
-      if (!inList) {
+    for (const f of activeFiles) {
+      if (!assetExists(pathSet, f)) {
+        issues.push({
+          level: 'error',
+          catalog: 'audio',
+          id,
+          message: `音声ファイル無し: ${f}`,
+        });
+      }
+      if (!f.toLowerCase().endsWith('.ogg')) {
         issues.push({
           level: 'warning',
           catalog: 'audio',
           id,
-          message: '有効 file が candidates に含まれていません',
+          message: `有効音声が ogg ではありません: ${f}`,
         });
+      }
+    }
+    const candidates = Array.isArray(cue.candidates) ? cue.candidates : [];
+    if (activeFiles.length > 0 && candidates.length > 0) {
+      for (const f of activeFiles) {
+        const inList = candidates.some(
+          (c) =>
+            typeof c === 'object' && c && String((c as { file?: string }).file ?? '') === f,
+        );
+        if (!inList) {
+          issues.push({
+            level: 'warning',
+            catalog: 'audio',
+            id,
+            message: `有効音声が candidates に含まれていません: ${f}`,
+          });
+        }
       }
     }
   }

@@ -3,10 +3,14 @@ import { api, type Issue } from '../lib/api';
 import { AudioPicker } from '../components/AudioPicker';
 import { ensureAssetUrl } from '../lib/assetUrlCache';
 import {
+  activeFilesOf,
+  isActiveFile,
   migrateCueCandidates,
   newCandidateId,
   sortCandidatesNewestFirst,
   suggestCandidatePaths,
+  toggleActiveFile,
+  withActiveFiles,
   type AudioCandidate,
   type AudioCandidateProvider,
   type AudioCueWithCandidates,
@@ -69,13 +73,15 @@ function CandidateRow({
   cand,
   active,
   busy,
-  onActivate,
+  canDeactivate,
+  onToggle,
   onDelete,
 }: {
   cand: AudioCandidate;
   active: boolean;
   busy: boolean;
-  onActivate: () => void;
+  canDeactivate: boolean;
+  onToggle: () => void;
   onDelete: () => void;
 }) {
   const [url, setUrl] = useState('');
@@ -117,11 +123,19 @@ function CandidateRow({
           </div>
         </div>
         <div className="flex gap-1 shrink-0">
-          {!active && (
-            <UiButton disabled={busy} onClick={onActivate}>
-              有効にする
-            </UiButton>
-          )}
+          <UiButton
+            disabled={busy || (active && !canDeactivate)}
+            onClick={onToggle}
+            title={
+              active && !canDeactivate
+                ? '有効音声は最低1本必要です'
+                : active
+                  ? '有効から外す'
+                  : '有効に追加（複数可）'
+            }
+          >
+            {active ? '有効解除' : '有効に追加'}
+          </UiButton>
           <UiButton variant="danger" disabled={busy || active} onClick={onDelete}>
             削除
           </UiButton>
@@ -296,18 +310,31 @@ export function AudioPage() {
     }
   };
 
-  const activateCandidate = async (cand: AudioCandidate) => {
+  const toggleCandidateActive = async (cand: AudioCandidate) => {
+    if (!cue) return;
+    const before = activeFilesOf(cue);
+    const preview = toggleActiveFile(cue, cand.file);
+    const after = activeFilesOf(preview);
+    if (before.length === after.length && before.every((f, i) => f === after[i])) {
+      setStatus('有効音声は最低1本必要です');
+      return;
+    }
+    const added = after.includes(cand.file) && !before.includes(cand.file);
+    const msg = added
+      ? `有効に追加しました（${after.length}本 · ゲームはランダム選曲）: ${cand.file}`
+      : `有効から外しました（残り ${after.length}本）: ${cand.file}`;
     try {
       setBusy(true);
       const sel = selectedRef.current;
       await commitCatalog(
         (prev) => {
           const cues = [...prev.cues];
-          if (!cues[sel]) return prev;
-          cues[sel] = { ...cues[sel], file: cand.file };
+          const cur = cues[sel];
+          if (!cur) return prev;
+          cues[sel] = toggleActiveFile(cur, cand.file);
           return { ...prev, cues };
         },
-        `有効候補をクラウドに保存しました: ${cand.file}`,
+        msg,
       );
     } catch (e) {
       setStatus(String((e as Error).message || e));
@@ -318,8 +345,8 @@ export function AudioPage() {
 
   const deleteCandidate = async (cand: AudioCandidate) => {
     if (!cue) return;
-    if (cue.file === cand.file) {
-      setStatus('有効中の候補は削除できません。先に別候補を有効にしてください');
+    if (isActiveFile(cue, cand.file)) {
+      setStatus('有効中の候補は削除できません。先に有効解除してください');
       return;
     }
     if (
@@ -388,18 +415,19 @@ export function AudioPage() {
         const cues = [...prev.cues];
         const cur = cues[sel];
         if (!cur) return prev;
-        cues[sel] = {
+        const withCand: Cue = {
           ...cur,
           candidates: [...(cur.candidates ?? []), cand],
-          file: cand.file,
         };
+        // 新規候補は有効一覧に追加（既存の有効は維持 → 複数選曲可能）
+        cues[sel] = withActiveFiles(withCand, [...activeFilesOf(withCand), cand.file]);
         return { ...prev, cues };
       },
       `候補を追加してクラウドに保存しました: ${input.oggPath}` +
         (input.originalPath !== input.oggPath
           ? `（原盤 ${input.originalPath}）`
           : '') +
-        ' · リロードしても残ります',
+        ' · 有効に追加済み（複数時はランダム）· リロードしても残ります',
     );
   };
 
@@ -596,13 +624,21 @@ export function AudioPage() {
                 </select>
               </label>
               <label className="block text-sm">
-                <span className="text-[var(--muted)]">有効 file（ゲームが参照 · ogg）</span>
+                <span className="text-[var(--muted)]">
+                  有効 files（複数可 · ゲームはランダム選曲 · ogg）
+                </span>
                 <div className="mt-1 flex gap-2 flex-wrap">
-                  <input
-                    className="flex-1 min-w-[12rem] rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)]"
-                    value={cue.file ?? ''}
-                    readOnly
-                  />
+                  <div className="flex-1 min-w-[12rem] rounded border border-[var(--line)] px-2 py-1.5 font-mono text-xs bg-[var(--input-bg)] space-y-0.5">
+                    {activeFilesOf(cue).length === 0 ? (
+                      <span className="text-[var(--muted)]">（未割当）</span>
+                    ) : (
+                      activeFilesOf(cue).map((f) => (
+                        <div key={f} className="break-all">
+                          {f}
+                        </div>
+                      ))
+                    )}
+                  </div>
                   <button
                     type="button"
                     className="px-3 py-1.5 rounded border border-[var(--line)] text-sm bg-[var(--input-bg)] shrink-0"
@@ -624,22 +660,27 @@ export function AudioPage() {
               <div className="rounded-md border border-[var(--line)] p-3 space-y-2">
                 <div className="text-sm font-medium">候補履歴（聞き比べ）</div>
                 <p className="text-[11px] text-[var(--muted)]">
-                  新しい順。有効にした ogg がゲーム用 file になります。原盤（wav/mp3 等）も保管されます。
+                  新しい順。「有効に追加」で複数選べます（ゲーム側は再生時にランダム）。原盤（wav/mp3
+                  等）も保管されます。有効は最低1本必要です。
                 </p>
                 {candidates.length === 0 ? (
                   <p className="text-xs text-[var(--muted)]">まだ候補がありません</p>
                 ) : (
                   <div className="space-y-2 max-h-[28rem] overflow-auto">
-                    {candidates.map((cand) => (
-                      <CandidateRow
-                        key={cand.id}
-                        cand={cand}
-                        active={cue.file === cand.file}
-                        busy={busy}
-                        onActivate={() => void activateCandidate(cand)}
-                        onDelete={() => void deleteCandidate(cand)}
-                      />
-                    ))}
+                    {candidates.map((cand) => {
+                      const active = isActiveFile(cue, cand.file);
+                      return (
+                        <CandidateRow
+                          key={cand.id}
+                          cand={cand}
+                          active={active}
+                          busy={busy}
+                          canDeactivate={activeFilesOf(cue).length > 1}
+                          onToggle={() => void toggleCandidateActive(cand)}
+                          onDelete={() => void deleteCandidate(cand)}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </div>

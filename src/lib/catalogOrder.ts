@@ -85,6 +85,7 @@ const ORDERS: Record<string, string[]> = {
     'trigger',
     'noteJa',
     'file',
+    'files',
     'promptJa',
     'promptEn',
     'candidates',

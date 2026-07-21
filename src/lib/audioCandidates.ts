@@ -26,7 +26,10 @@ export type AudioCueWithCandidates = {
   id: string;
   code?: string;
   kind: AudioKind;
+  /** 互換用の代表パス（通常は files[0]）。 */
   file?: string;
+  /** ゲームがランダム選曲する有効 ogg 一覧。 */
+  files?: string[];
   loop?: boolean;
   trigger?: string;
   noteJa?: string;
@@ -34,6 +37,53 @@ export type AudioCueWithCandidates = {
   promptEn?: string;
   candidates?: AudioCandidate[];
 };
+
+/** 有効パス一覧（files 優先、なければ file）。 */
+export function activeFilesOf(cue: AudioCueWithCandidates): string[] {
+  const fromFiles = (cue.files ?? [])
+    .map((f) => String(f || '').trim())
+    .filter(Boolean);
+  if (fromFiles.length > 0) return [...new Set(fromFiles)];
+  const single = cue.file?.trim() || '';
+  return single ? [single] : [];
+}
+
+export function isActiveFile(cue: AudioCueWithCandidates, path: string): boolean {
+  const p = path.trim();
+  if (!p) return false;
+  return activeFilesOf(cue).some((f) => f === p);
+}
+
+/** files を正規化し、file を先頭と同期。 */
+export function withActiveFiles(
+  cue: AudioCueWithCandidates,
+  files: string[],
+): AudioCueWithCandidates {
+  const next = [...new Set(files.map((f) => f.trim()).filter(Boolean))];
+  return {
+    ...cue,
+    files: next,
+    file: next[0] ?? '',
+  };
+}
+
+export function toggleActiveFile(
+  cue: AudioCueWithCandidates,
+  path: string,
+): AudioCueWithCandidates {
+  const p = path.trim();
+  if (!p) return cue;
+  const cur = activeFilesOf(cue);
+  const has = cur.includes(p);
+  if (has) {
+    if (cur.length <= 1) return cue; // 最後の1本は外せない
+    return withActiveFiles(
+      cue,
+      cur.filter((f) => f !== p),
+    );
+  }
+  return withActiveFiles(cue, [...cur, p]);
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
@@ -92,22 +142,25 @@ export function extOfPath(path: string): string {
   return m ? m[1] : '';
 }
 
-/** If file is set but missing from candidates, synthesize one entry. */
+/** If file is set but missing from candidates, synthesize one entry. Sync files[]. */
 export function migrateCueCandidates<T extends AudioCueWithCandidates>(cue: T): T {
-  const file = cue.file?.trim() || '';
+  const files = activeFilesOf(cue);
   const candidates = [...(cue.candidates ?? [])];
-  if (file && !candidates.some((c) => c.file === file)) {
-    candidates.unshift({
-      id: newCandidateId(),
-      file,
-      originalFile: file,
-      originalFormat: extOfPath(file) || undefined,
-      source: 'picker',
-      createdAt: new Date().toISOString(),
-      label: '既存ファイル',
-    });
+  for (const file of files) {
+    if (file && !candidates.some((c) => c.file === file)) {
+      candidates.unshift({
+        id: newCandidateId(),
+        file,
+        originalFile: file,
+        originalFormat: extOfPath(file) || undefined,
+        source: 'picker',
+        createdAt: new Date().toISOString(),
+        label: '既存ファイル',
+      });
+    }
   }
-  return { ...cue, candidates };
+  const synced = withActiveFiles({ ...cue, candidates }, files);
+  return synced as T;
 }
 
 export function sortCandidatesNewestFirst(

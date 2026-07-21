@@ -194,22 +194,29 @@ export function validateGameContent(root: string): Issue[] {
 
   for (const cue of audio.cues) {
     const id = String(cue.id ?? '');
+    const filesFromArr = Array.isArray(cue.files)
+      ? cue.files.map((f: unknown) => String(f ?? '').trim()).filter(Boolean)
+      : [];
     const file = typeof cue.file === 'string' ? cue.file.trim() : '';
-    if (file && !assetExists(root, file)) {
-      issues.push({
-        level: 'error',
-        catalog: 'audio',
-        id,
-        message: `音声ファイル無し: ${file}`,
-      });
-    }
-    if (!file) {
+    const activeFiles =
+      filesFromArr.length > 0 ? [...new Set(filesFromArr)] : file ? [file] : [];
+    if (activeFiles.length === 0) {
       issues.push({
         level: 'warning',
         catalog: 'audio',
         id,
-        message: 'file 未割当',
+        message: '有効音声未割当（files / file）',
       });
+    }
+    for (const f of activeFiles) {
+      if (!assetExists(root, f)) {
+        issues.push({
+          level: 'error',
+          catalog: 'audio',
+          id,
+          message: `音声ファイル無し: ${f}`,
+        });
+      }
     }
   }
 

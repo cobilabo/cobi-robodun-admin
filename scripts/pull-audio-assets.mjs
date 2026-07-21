@@ -34,6 +34,9 @@ const audio = JSON.parse(fs.readFileSync(audioPath, 'utf8').replace(/^\uFEFF/, '
 const files = new Set();
 for (const c of audio.cues || []) {
   if (c.file) files.add(String(c.file).replace(/\\/g, '/'));
+  for (const f of c.files || []) {
+    if (f) files.add(String(f).replace(/\\/g, '/'));
+  }
   if (includeCandidates) {
     for (const cand of c.candidates || []) {
       if (cand?.file) files.add(String(cand.file).replace(/\\/g, '/'));
