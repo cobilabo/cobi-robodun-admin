@@ -12,4 +12,7 @@ alwaysApply: true
   2. `.env.production`（`VITE_DATA_MODE=cloud` + `VITE_FIREBASE_*`）で `npm run build`
   3. `npx firebase deploy --only functions,hosting --project cobi-robodun-admin`
   4. Functions の cleanup policy 警告で失敗したら `--force` を付けて再実行、または hosting だけ再デプロイして `index.html` 更新を確認
-- AI 生成は Cloud Function `generateLibraryImage`（`asia-northeast1`、Secret `OPEN_AI_API_KEY`）に依存する。
+- AI 画像生成は Cloud Function `generateLibraryImage`（Secret `OPEN_AI_API_KEY`）に依存する。
+- AI 音声生成は Cloud Function `generateProjectAudio`（Secrets `STABILITY_API_KEY` / `ELEVENLABS_API_KEY`、ffmpeg で ogg 化）に依存する。
+- 音声正規化は Cloud Function `normalizeProjectAudio`（ffmpeg）に依存する。
+- 音声プロンプト日→英変換は Cloud Function `translateAudioPrompt`（Secret `OPEN_AI_API_KEY`）に依存する。

@@ -16,7 +16,7 @@ const baseField =
 
 const baseBtn =
   `ui-control ${UI_CONTROL_H} ${UI_CONTROL_TEXT} box-border inline-flex items-center justify-center gap-1 rounded border px-2.5 ` +
-  'disabled:opacity-40 shrink-0 whitespace-nowrap';
+  'cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 shrink-0 whitespace-nowrap';
 
 function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(' ');

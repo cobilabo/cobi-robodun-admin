@@ -46,13 +46,21 @@ npm run seed:firebase
 SEED_SCOPE=library npm run seed:firebase
 
 npx firebase deploy --only firestore:rules,storage
-# AI 生成用: Secret Manager に OPEN_AI_API_KEY（未作成なら secrets:set）
+# AI 生成用 Secret（未作成なら secrets:set）
+# - OPEN_AI_API_KEY … 画像生成
+# - STABILITY_API_KEY … BGM/ambience（Stable Audio）
+# - ELEVENLABS_API_KEY … SE/UI（ElevenLabs Sound Effects）
 cd functions && npm install && cd ..
 npm run build
 npx firebase deploy --only functions,hosting
 ```
 
-Callable Function `generateLibraryImage`（`asia-northeast1`）がライブラリ向け AI 生成を担当します。
+Callable（`asia-northeast1`）:
+
+- `generateLibraryImage` … ライブラリ向け画像 AI 生成
+- `generateProjectAudio` … プロジェクト音声 AI 生成（Stable Audio / ElevenLabs）→ `project/assets/audio/...`
+
+音声画面では、AI 生成に加えて Google Flow Music 等の手動書き出しファイルを「このキューへ手動UP」で割当できます。
 
 5. Authentication でメンバー用ユーザーを作成
 6. Hosting URL を共有

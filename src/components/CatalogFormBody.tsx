@@ -66,6 +66,8 @@ export function CatalogFormBody({
     if (catalogId === 'bosses' && key === 'isBoss') return null;
     // scaling は廃止（効果 type / スキル効果参照で意図を表現）
     if (key === 'scaling') return null;
+    // vfx はゲーム側専用フィールド（管理 UI では編集しない）
+    if (key === 'vfx') return null;
 
     if (!(key in selected) && key !== 'descriptionJa' && key !== 'logic') {
       // allow missing optional keys in layout by creating empty
@@ -491,7 +493,8 @@ export function CatalogFormBody({
       (k) =>
         !used.has(k) &&
         !(catalogId === 'bosses' && k === 'isBoss') &&
-        k !== 'scaling',
+        k !== 'scaling' &&
+        k !== 'vfx',
     );
     return (
       <div className="space-y-2.5 max-w-3xl text-xs">
@@ -505,9 +508,11 @@ export function CatalogFormBody({
 
   return (
     <div className="space-y-2.5 max-w-3xl text-xs">
-      {keys.map((k) => (
-        <div key={k}>{renderField(k)}</div>
-      ))}
+      {keys
+        .filter((k) => k !== 'vfx')
+        .map((k) => (
+          <div key={k}>{renderField(k)}</div>
+        ))}
     </div>
   );
 }

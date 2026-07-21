@@ -201,6 +201,28 @@ export function validateCatalogBundle(
         message: 'file 未割当',
       });
     }
+    if (file && !file.toLowerCase().endsWith('.ogg')) {
+      issues.push({
+        level: 'warning',
+        catalog: 'audio',
+        id,
+        message: `有効 file が ogg ではありません: ${file}`,
+      });
+    }
+    const candidates = Array.isArray(cue.candidates) ? cue.candidates : [];
+    if (file && candidates.length > 0) {
+      const inList = candidates.some(
+        (c) => typeof c === 'object' && c && String((c as { file?: string }).file ?? '') === file,
+      );
+      if (!inList) {
+        issues.push({
+          level: 'warning',
+          catalog: 'audio',
+          id,
+          message: '有効 file が candidates に含まれていません',
+        });
+      }
+    }
   }
 
   if (hudRaw == null) {

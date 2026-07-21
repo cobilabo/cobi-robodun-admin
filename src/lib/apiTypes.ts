@@ -149,6 +149,57 @@ export type AdminApi = {
     width?: number;
     height?: number;
   }>;
+  /**
+   * Japanese audio direction → English prompt via OpenAI.
+   * Cloud: Cloud Function. Local: 501.
+   */
+  translateAudioPrompt: (input: {
+    japanese: string;
+    kind?: 'bgm' | 'se' | 'ui' | 'ambience';
+    code?: string;
+    trigger?: string;
+    noteJa?: string;
+    loop?: boolean;
+  }) => Promise<{ ok: boolean; english: string; japanese: string }>;
+  /**
+   * Project audio AI generate → assets/audio/...
+   * Cloud: Cloud Function (Stable Audio / ElevenLabs). Local: 501.
+   */
+  generateProjectAudio: (input: {
+    kind: 'bgm' | 'se' | 'ui' | 'ambience';
+    prompt?: string;
+    destPath?: string;
+    code?: string;
+    trigger?: string;
+    noteJa?: string;
+    loop?: boolean;
+    durationSeconds?: number;
+    provider?: 'auto' | 'stable-audio' | 'elevenlabs';
+  }) => Promise<{
+    ok: boolean;
+    path: string;
+    originalPath?: string;
+    originalFormat?: string;
+    provider: 'stable-audio' | 'elevenlabs';
+    kind: string;
+    durationSeconds: number;
+    prompt: string;
+    contentType?: string;
+  }>;
+  /**
+   * Convert uploaded project audio to ogg; keep original at srcPath.
+   * Cloud: Cloud Function + ffmpeg. Local: 501.
+   */
+  normalizeProjectAudio: (input: {
+    srcPath: string;
+    destOggPath?: string;
+  }) => Promise<{
+    ok: boolean;
+    path: string;
+    originalPath: string;
+    originalFormat: string;
+    contentType?: string;
+  }>;
   /** Legacy JSON-only catalog dump */
   exportBundle: () => Promise<Blob>;
   /**

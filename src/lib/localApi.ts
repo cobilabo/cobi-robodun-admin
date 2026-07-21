@@ -163,6 +163,46 @@ export const localApi: AdminApi = {
       }),
     }),
 
+  translateAudioPrompt: (input) =>
+    req<{ ok: boolean; english: string; japanese: string }>(
+      '/api/audio/translate-prompt',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      },
+    ),
+
+  generateProjectAudio: (input) =>
+    req<{
+      ok: boolean;
+      path: string;
+      originalPath?: string;
+      originalFormat?: string;
+      provider: 'stable-audio' | 'elevenlabs';
+      kind: string;
+      durationSeconds: number;
+      prompt: string;
+      contentType?: string;
+    }>('/api/audio/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+
+  normalizeProjectAudio: (input) =>
+    req<{
+      ok: boolean;
+      path: string;
+      originalPath: string;
+      originalFormat: string;
+      contentType?: string;
+    }>('/api/audio/normalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+
   bumpContentVersion: () =>
     req('/api/ops/bump-content-version', { method: 'POST' }),
 

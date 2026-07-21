@@ -50,6 +50,9 @@ function wrap(): AsyncApi {
     'deleteCategory',
     'renameCategory',
     'generateLibraryImage',
+    'translateAudioPrompt',
+    'generateProjectAudio',
+    'normalizeProjectAudio',
     'exportBundle',
     'exportGameZip',
   ] as const;

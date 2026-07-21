@@ -55,6 +55,27 @@ const listCache = new Map<string, { at: number; items: ListedItem[] }>();
 const LIST_CACHE_MS = 5 * 60 * 1000;
 const downloadUrlCache = new Map<string, string>();
 
+/** Firestore throws if any field is `undefined`. */
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => stripUndefinedDeep(v)) as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    // Keep Firestore Timestamp / Date / FieldValue as-is
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      return value;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[k] = stripUndefinedDeep(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 function requireUser() {
   const u = getFirebaseAuth().currentUser;
   if (!u) throw new Error('ログインが必要です');
@@ -294,7 +315,8 @@ export const cloudApi: AdminApi = {
 
   async saveCatalog(name, data) {
     const user = requireUser();
-    const ordered = orderCatalogData(name, data);
+    // Firestore rejects `undefined` anywhere in the document.
+    const ordered = stripUndefinedDeep(orderCatalogData(name, data));
     const db = getDb();
     const catalogRef = doc(db, 'catalogs', name);
 
@@ -709,6 +731,90 @@ export const cloudApi: AdminApi = {
       transparentBackground: data.transparentBackground,
       width: data.width,
       height: data.height,
+    };
+  },
+
+  async translateAudioPrompt(input) {
+    requireUser();
+    const fn = httpsCallable(
+      getFunctions(getFirebaseApp(), 'asia-northeast1'),
+      'translateAudioPrompt',
+    );
+    const result = await fn(input);
+    const data = result.data as {
+      ok?: boolean;
+      english?: string;
+      japanese?: string;
+    };
+    if (!data?.english) throw new Error('英語プロンプトの変換結果がありません');
+    return {
+      ok: true,
+      english: data.english,
+      japanese: data.japanese ?? input.japanese,
+    };
+  },
+
+  async generateProjectAudio(input) {
+    requireUser();
+    const fn = httpsCallable(
+      getFunctions(getFirebaseApp(), 'asia-northeast1'),
+      'generateProjectAudio',
+      { timeout: 540_000 },
+    );
+    const result = await fn(input);
+    const data = result.data as {
+      ok?: boolean;
+      path?: string;
+      originalPath?: string;
+      originalFormat?: string;
+      provider?: 'stable-audio' | 'elevenlabs';
+      kind?: string;
+      durationSeconds?: number;
+      prompt?: string;
+      contentType?: string;
+    };
+    if (!data?.path || !data.provider) {
+      throw new Error('音声生成結果のパスがありません');
+    }
+    invalidateListCache(PROJECT_PREFIX);
+    return {
+      ok: true,
+      path: data.path,
+      originalPath: data.originalPath,
+      originalFormat: data.originalFormat,
+      provider: data.provider,
+      kind: data.kind ?? input.kind,
+      durationSeconds: data.durationSeconds ?? input.durationSeconds ?? 0,
+      prompt: data.prompt ?? input.prompt ?? '',
+      contentType: data.contentType,
+    };
+  },
+
+  async normalizeProjectAudio(input) {
+    requireUser();
+    const fn = httpsCallable(
+      getFunctions(getFirebaseApp(), 'asia-northeast1'),
+      'normalizeProjectAudio',
+      { timeout: 300_000 },
+    );
+    const result = await fn(input);
+    const data = result.data as {
+      ok?: boolean;
+      path?: string;
+      originalPath?: string;
+      originalFormat?: string;
+      contentType?: string;
+    };
+    if (!data?.path || !data.originalPath || !data.originalFormat) {
+      throw new Error('音声正規化結果がありません');
+    }
+    invalidateListCache(PROJECT_PREFIX);
+    return {
+      ok: true,
+      path: data.path,
+      originalPath: data.originalPath,
+      originalFormat: data.originalFormat,
+      contentType: data.contentType,
     };
   },
 

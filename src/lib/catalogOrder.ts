@@ -78,7 +78,28 @@ const ORDERS: Record<string, string[]> = {
     'perLevel',
   ],
   behaviors: ['id', 'nameJa', 'logic', 'descriptionJa'],
-  audio_cue: ['id', 'kind', 'loop', 'trigger', 'noteJa', 'file'],
+  audio_cue: [
+    'id',
+    'kind',
+    'loop',
+    'trigger',
+    'noteJa',
+    'file',
+    'promptJa',
+    'promptEn',
+    'candidates',
+  ],
+  audio_candidate: [
+    'id',
+    'file',
+    'originalFile',
+    'originalFormat',
+    'source',
+    'provider',
+    'createdAt',
+    'label',
+    'promptEn',
+  ],
   hud_slot: ['slot', 'labelJa', 'icon'],
   hud_asset: ['key', 'labelJa', 'icon', 'useEquippedWeapon', 'noteJa'],
   growth: ['hp', 'atk', 'dex'],
@@ -175,6 +196,14 @@ function orderRow(row: Record<string, unknown>, kind: string): Record<string, un
       ordered.growth as Record<string, unknown>,
       ORDERS.growth,
     );
+  }
+  if (kind === 'audio_cue' && Array.isArray(ordered.candidates)) {
+    ordered.candidates = ordered.candidates
+      .filter(
+        (r): r is Record<string, unknown> =>
+          !!r && typeof r === 'object' && !Array.isArray(r),
+      )
+      .map((r) => orderRow(r, 'audio_candidate'));
   }
   return ordered;
 }

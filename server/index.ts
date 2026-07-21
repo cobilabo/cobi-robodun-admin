@@ -519,6 +519,30 @@ app.post('/api/library/generate', (_req, res) => {
   });
 });
 
+app.post('/api/audio/generate', (_req, res) => {
+  res.status(501).json({
+    ok: false,
+    error:
+      'ローカルモードの音声 AI 生成は未対応です。クラウド（Hosting）で利用してください。',
+  });
+});
+
+app.post('/api/audio/translate-prompt', (_req, res) => {
+  res.status(501).json({
+    ok: false,
+    error:
+      'ローカルモードのプロンプト翻訳は未対応です。クラウド（Hosting）で利用してください。',
+  });
+});
+
+app.post('/api/audio/normalize', (_req, res) => {
+  res.status(501).json({
+    ok: false,
+    error:
+      'ローカルモードの音声正規化は未対応です。クラウド（Hosting）で利用してください。',
+  });
+});
+
 app.post('/api/categories/create', (req, res) => {
   const source = req.body?.source === 'library' ? 'library' : 'project';
   try {
