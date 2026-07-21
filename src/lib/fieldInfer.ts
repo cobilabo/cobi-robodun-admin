@@ -31,6 +31,25 @@ export function inferFieldKind(key: string, value: unknown): FieldKind {
   ) {
     return 'numberMap';
   }
+  // キー名で数値確定（初回追加時 value が '' でも text に落ちないように）
+  if (
+    k === 'uniquevalue' ||
+    k.endsWith('bonus') ||
+    k === 'spawnturn' ||
+    k === 'spawnturnstart' ||
+    k === 'spawnturnend' ||
+    k === 'maxhp' ||
+    k === 'atk' ||
+    k === 'dex' ||
+    k === 'maxarmor' ||
+    k === 'attackinterval' ||
+    k === 'basecooldown' ||
+    k === 'maxlevel' ||
+    k === 'baseamount' ||
+    k === 'perlevel'
+  ) {
+    return 'number';
+  }
   if (typeof value === 'number') return 'number';
   if (typeof value === 'boolean') return 'boolean';
   if (value && typeof value === 'object') return 'json';
