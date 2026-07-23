@@ -33,6 +33,8 @@ function wrap(): AsyncApi {
     'catalogs',
     'getCatalog',
     'saveCatalog',
+    'listCatalogHistory',
+    'getCatalogRevision',
     'validate',
     'assets',
     'library',

@@ -1,8 +1,17 @@
+import type { CatalogLatestMeta, CatalogRevisionMeta } from './catalogHistory';
+
+export type { CatalogLatestMeta, CatalogRevisionMeta };
+
 export type Issue = {
   level: 'error' | 'warning';
   catalog?: string;
   id?: string;
   message: string;
+};
+
+export type SaveCatalogOptions = {
+  /** 読み込み時の updatedAt。不一致なら競合エラー。 */
+  expectedUpdatedAt?: string | null;
 };
 
 export type AssetEntry = {
@@ -57,11 +66,29 @@ export type AdminApi = {
     ok: boolean;
     catalogs: { id: string; file: string; exists: boolean; count: number }[];
   }>;
-  getCatalog: (name: string) => Promise<{ ok: boolean; file: string; data: unknown }>;
+  getCatalog: (name: string) => Promise<{
+    ok: boolean;
+    file: string;
+    data: unknown;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  }>;
   saveCatalog: (
     name: string,
     data: unknown,
+    opts?: SaveCatalogOptions,
   ) => Promise<{ ok: boolean; backupPath: string | null; issues: Issue[] }>;
+  /** クラウドのみ。ローカルは空配列。 */
+  listCatalogHistory: (name: string) => Promise<{
+    ok: boolean;
+    latest: CatalogLatestMeta | null;
+    revisions: CatalogRevisionMeta[];
+    available: boolean;
+  }>;
+  getCatalogRevision: (
+    name: string,
+    revisionId: string,
+  ) => Promise<{ ok: boolean; data: unknown; meta: CatalogRevisionMeta }>;
   validate: () => Promise<{ ok: boolean; issues: Issue[] }>;
   assets: (sub?: string) => Promise<{ ok: boolean; assets: AssetEntry[] }>;
   library: () => Promise<{

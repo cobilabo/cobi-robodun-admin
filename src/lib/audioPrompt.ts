@@ -214,6 +214,118 @@ const CUE_DEFAULTS: Record<string, CuePrompt> = {
       'Soft lower beep; 0.2–0.6s; softer than confirm, not negative.',
     ].join(' '),
   },
+
+  se_path_tick: {
+    durationSeconds: 0.35,
+    ja: [
+      STYLE_JA,
+      '用途: 盤面なぞり通過 SE（マスに入るたび）',
+      'ムード: 軽いクリック／タップ。連続再生してもうるさくない',
+      '長さ: 0.12〜0.35 秒。超短い',
+      '音色: ソフトな電子ティック / 小さな UI クリック',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: path tick when finger enters a new tile while swiping.',
+      'Soft electronic tick / tiny UI click; 0.12–0.35s; not fatiguing when rapid.',
+    ].join(' '),
+  },
+
+  se_boss_appear: {
+    durationSeconds: 1.4,
+    ja: [
+      STYLE_JA,
+      '用途: ボス出現アナウンス SE',
+      'ムード: 警告と盛り上がり。短くインパクト',
+      '長さ: 0.8〜1.6 秒',
+      '音色: 警報サイレン風の電子音 + 低めの衝撃。過度なホラーは避ける',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: boss appear announce.',
+      'Alerting whoosh/siren sting + low impact; 0.8–1.6s; playful sci-fi, not horror.',
+    ].join(' '),
+  },
+
+  se_levelup: {
+    durationSeconds: 1.2,
+    ja: [
+      STYLE_JA,
+      '用途: レベルアップ画面オープン SE',
+      'ムード: 達成感のある上昇ジングル',
+      '長さ: 0.7〜1.4 秒',
+      '音色: 上昇する明るいチャイム／アルペジオ。短い',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: level-up screen open.',
+      'Bright ascending chime / short arpeggio; 0.7–1.4s; rewarding.',
+    ].join(' '),
+  },
+
+  se_skill_select: {
+    durationSeconds: 1.0,
+    ja: [
+      STYLE_JA,
+      '用途: スキル選択画面オープン SE',
+      'ムード: エネルギー充填・パワーアップ感',
+      '長さ: 0.5〜1.2 秒',
+      '音色: 充電完了ビープ + 軽いスパーク',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: skill select screen open (energy full).',
+      'Charge-complete beep + light sparkle; 0.5–1.2s.',
+    ].join(' '),
+  },
+
+  se_shop_open: {
+    durationSeconds: 1.0,
+    ja: [
+      STYLE_JA,
+      '用途: 開発（ショップ）画面オープン SE',
+      'ムード: 端末起動・工房オープンの軽さ',
+      '長さ: 0.5〜1.1 秒',
+      '音色: メカニカルな起動音 / ソフトなキャッシュレジスタ風電子音',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: development shop screen open.',
+      'Soft mechanical boot / light register-like electronic chime; 0.5–1.1s.',
+    ].join(' '),
+  },
+
+  se_enemy_kill: {
+    durationSeconds: 0.9,
+    ja: [
+      STYLE_JA,
+      '用途: 敵撃破 SE',
+      'ムード: 分解・消滅のサティスファクション。着弾より少し華やか',
+      '長さ: 0.4〜1.0 秒',
+      '音色: 短い電子崩壊 + キラッとした粒子感',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: enemy defeated / destroyed.',
+      'Short electronic collapse + sparkly particles; 0.4–1.0s; more satisfying than a normal hit.',
+    ].join(' '),
+  },
+
+  se_skill_use: {
+    durationSeconds: 1.0,
+    ja: [
+      STYLE_JA,
+      '用途: スキル発動 SE',
+      'ムード: 能力解放のワンショット',
+      '長さ: 0.5〜1.2 秒',
+      '音色: パワーリリースのウーシュ／チャージ解除。派手すぎない',
+    ].join('\n'),
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: skill activated.',
+      'Power-release whoosh / charge dump; 0.5–1.2s; clear but not oversized.',
+    ].join(' '),
+  },
 };
 
 function kindFallbackJa(input: {

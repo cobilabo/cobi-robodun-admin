@@ -16,6 +16,7 @@
 [ブラウザ Admin]
     │  Auth
     ├─ Firestore  catalogs/{name}     ← JSON 正本（クラウド）
+    │            catalogHistory/{name}/revisions  ← 保存直前スナップ（最大100）
     └─ Storage
          ├─ project/assets/**         ← 画像・音声正本
          └─ library/**                ← 外部素材ライブラリ（取込元）
@@ -23,6 +24,9 @@
          ▼ 運用画面からエクスポート / 手動同期
 [cobi-robodun data/ + assets/]  ← ゲーム実行用正本
 ```
+
+カタログ／音声画面の「版」プルダウンで過去版を読み込み、保存すると新しい最新になります。
+`seed:firebase` で上書きする場合も、既存ドキュメントは履歴へ退避してから書き込みます。
 
 - **ローカルモード** (`VITE_DATA_MODE=local`): 従来どおり Express + GAME_ROOT（個人開発）
 - **クラウドモード** (`VITE_DATA_MODE=cloud`): Firebase のみ。Hosting に静的ビルドを載せる

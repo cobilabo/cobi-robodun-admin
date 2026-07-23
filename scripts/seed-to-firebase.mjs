@@ -10,6 +10,9 @@
  *
  * SKIP_EXISTING (default on) also skips existing Firestore catalogs.
  * Force specific catalogs with FORCE_CATALOG_IDS, or set SKIP_EXISTING=0.
+ *
+ * Catalog overwrite backs up the previous Firestore data into
+ * catalogHistory/{id}/revisions (same as Admin save; keeps last 100).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -105,6 +108,33 @@ async function uploadTree(bucket, localDir, destPrefix, label) {
   return uploaded;
 }
 
+const CATALOG_HISTORY_LIMIT = 100;
+
+async function backupCatalogRevision(db, catalogId, prevSnap) {
+  if (!prevSnap?.exists) return null;
+  const prev = prevSnap.data() || {};
+  const now = new Date();
+  const revRef = await db.collection('catalogHistory').doc(catalogId).collection('revisions').add({
+    data: prev.data ?? null,
+    savedAt: now,
+    savedAtServer: now,
+    savedBy: 'seed-script',
+    sourceUpdatedAt: prev.updatedAt ?? null,
+    sourceUpdatedBy: prev.updatedBy ?? null,
+  });
+
+  const histSnap = await db
+    .collection('catalogHistory')
+    .doc(catalogId)
+    .collection('revisions')
+    .orderBy('savedAt', 'desc')
+    .limit(CATALOG_HISTORY_LIMIT + 20)
+    .get();
+  const stale = histSnap.docs.slice(CATALOG_HISTORY_LIMIT);
+  await Promise.all(stale.map((d) => d.ref.delete()));
+  return revRef.path;
+}
+
 async function seedCatalogs(db) {
   const dataDir = path.join(root, 'data');
   const catalogs = [
@@ -133,14 +163,20 @@ async function seedCatalogs(db) {
       continue;
     }
     const ref = db.collection('catalogs').doc(id);
+    const existing = await ref.get();
     if (skipExisting && !forceIds.has(id)) {
-      const existing = await ref.get();
       if (existing.exists) {
         console.log('catalog', id, 'skip existing (set FORCE_CATALOG_IDS or SKIP_EXISTING=0 to overwrite)');
         continue;
       }
     }
     const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    let historyPath = null;
+    try {
+      historyPath = await backupCatalogRevision(db, id, existing);
+    } catch (err) {
+      console.warn('catalog history backup failed', id, err?.message || err);
+    }
     await ref.set(
       {
         data,
@@ -149,7 +185,12 @@ async function seedCatalogs(db) {
       },
       { merge: true },
     );
-    console.log('catalog', id, forceIds.has(id) ? '(forced)' : '');
+    console.log(
+      'catalog',
+      id,
+      forceIds.has(id) ? '(forced)' : '',
+      historyPath ? `history→${historyPath}` : '(no prior)',
+    );
   }
 }
 

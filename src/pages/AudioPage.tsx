@@ -22,16 +22,42 @@ import {
   resolveProvider,
 } from '../lib/audioPrompt';
 
+import { CatalogHistoryBar } from '../components/CatalogHistoryBar';
 import { PageDesc, UiButton } from '../components/ui';
+import { isCloudMode } from '../lib/mode';
 
 type Cue = AudioCueWithCandidates;
 type AudioDoc = { version: number; cues: Cue[] };
 type ProviderChoice = 'auto' | 'stable-audio' | 'elevenlabs';
 
 const DEFAULT_CUES: Cue[] = [
-  { id: 'aud_01', code: 'bgm_title', kind: 'bgm', loop: true, trigger: 'Title', noteJa: 'タイトル' },
-  { id: 'aud_02', code: 'bgm_battle', kind: 'bgm', loop: true, trigger: 'Battle', noteJa: '戦闘' },
-  { id: 'aud_03', code: 'bgm_boss', kind: 'bgm', loop: true, trigger: 'Boss', noteJa: 'ボス' },
+  {
+    id: 'aud_01',
+    code: 'bgm_title',
+    kind: 'bgm',
+    loop: true,
+    trigger: 'Title',
+    noteJa: 'タイトル',
+    usageJa: 'タイトル／ホーム／リーダーボード／オプション画面の BGM',
+  },
+  {
+    id: 'aud_02',
+    code: 'bgm_battle',
+    kind: 'bgm',
+    loop: true,
+    trigger: 'Battle',
+    noteJa: '戦闘',
+    usageJa: '通常戦闘中（盤面プレイ）の BGM',
+  },
+  {
+    id: 'aud_03',
+    code: 'bgm_boss',
+    kind: 'bgm',
+    loop: true,
+    trigger: 'Boss',
+    noteJa: 'ボス',
+    usageJa: 'ボスが盤上にいる間の BGM',
+  },
   {
     id: 'aud_04',
     code: 'bgm_gameover',
@@ -39,14 +65,133 @@ const DEFAULT_CUES: Cue[] = [
     loop: false,
     trigger: 'GameOver',
     noteJa: 'ゲームオーバー',
+    usageJa: 'ゲームオーバー時の短尺ジングル',
   },
-  { id: 'aud_05', code: 'se_match', kind: 'se', trigger: 'MatchClear', noteJa: 'マッチ成立' },
-  { id: 'aud_06', code: 'se_clear', kind: 'se', trigger: 'TileClear', noteJa: '消去' },
-  { id: 'aud_07', code: 'se_hit', kind: 'se', trigger: 'Hit', noteJa: '着弾' },
-  { id: 'aud_08', code: 'se_player_hit', kind: 'se', trigger: 'PlayerHit', noteJa: '被弾' },
-  { id: 'aud_09', code: 'ui_ok', kind: 'ui', trigger: 'UiConfirm', noteJa: '決定' },
-  { id: 'aud_10', code: 'ui_back', kind: 'ui', trigger: 'UiBack', noteJa: '戻る' },
+  {
+    id: 'aud_05',
+    code: 'se_match',
+    kind: 'se',
+    trigger: 'MatchClear',
+    noteJa: 'マッチ成立',
+    usageJa: 'パス確定でマッチが成立した瞬間',
+  },
+  {
+    id: 'aud_06',
+    code: 'se_clear',
+    kind: 'se',
+    trigger: 'TileClear',
+    noteJa: '消去',
+    usageJa: 'マッチ後、タイルが消え始める演出の開始時',
+  },
+  {
+    id: 'aud_07',
+    code: 'se_hit',
+    kind: 'se',
+    trigger: 'Hit',
+    noteJa: '着弾',
+    usageJa: '敵への攻撃がヒットしたとき（着弾フラッシュ）',
+  },
+  {
+    id: 'aud_08',
+    code: 'se_player_hit',
+    kind: 'se',
+    trigger: 'PlayerHit',
+    noteJa: '被弾',
+    usageJa: '敵フェーズでプレイヤーがダメージを受けたとき',
+  },
+  {
+    id: 'aud_09',
+    code: 'ui_ok',
+    kind: 'ui',
+    trigger: 'UiConfirm',
+    noteJa: '決定',
+    usageJa: 'UI の決定・選択確定（キャラ選択、Lv/スキル/装備の選択、メニュー決定など）',
+  },
+  {
+    id: 'aud_10',
+    code: 'ui_back',
+    kind: 'ui',
+    trigger: 'UiBack',
+    noteJa: '戻る',
+    usageJa: 'UI の戻る・キャンセル・メニュー閉じる・中断など',
+  },
+  {
+    id: 'aud_11',
+    code: 'se_path_tick',
+    kind: 'se',
+    trigger: 'PathTick',
+    noteJa: 'なぞり通過',
+    usageJa: '盤面をスワイプして新しいマスに入ったとき（連結追加）',
+  },
+  {
+    id: 'aud_12',
+    code: 'se_boss_appear',
+    kind: 'se',
+    trigger: 'BossAppear',
+    noteJa: 'ボス出現',
+    usageJa: 'ボス出現アナウンスが表示されたとき',
+  },
+  {
+    id: 'aud_13',
+    code: 'se_levelup',
+    kind: 'se',
+    trigger: 'LevelUp',
+    noteJa: 'レベルアップ',
+    usageJa: 'レベルアップ選択画面が開いたとき',
+  },
+  {
+    id: 'aud_14',
+    code: 'se_skill_select',
+    kind: 'se',
+    trigger: 'SkillSelect',
+    noteJa: 'スキル選択',
+    usageJa: 'EN 満タン後のスキル獲得／強化選択画面が開いたとき',
+  },
+  {
+    id: 'aud_15',
+    code: 'se_shop_open',
+    kind: 'se',
+    trigger: 'ShopOpen',
+    noteJa: '開発開店',
+    usageJa: '廃品ショップ（開発）画面が開いたとき',
+  },
+  {
+    id: 'aud_16',
+    code: 'se_enemy_kill',
+    kind: 'se',
+    trigger: 'EnemyKill',
+    noteJa: '敵撃破',
+    usageJa: '攻撃で敵を撃破したとき（着弾と同時／直後）',
+  },
+  {
+    id: 'aud_17',
+    code: 'se_skill_use',
+    kind: 'se',
+    trigger: 'SkillUse',
+    noteJa: 'スキル使用',
+    usageJa: 'スキルを発動したとき',
+  },
 ];
+
+/** クラウドに無い既定キューを足し、usageJa が空なら既定文を埋める。 */
+function mergeDefaultCues(cues: Cue[]): Cue[] {
+  const byId = new Map(cues.map((c) => [c.id, { ...c }]));
+  for (const d of DEFAULT_CUES) {
+    const cur = byId.get(d.id);
+    if (!cur) {
+      byId.set(d.id, { ...d });
+      continue;
+    }
+    if (!cur.usageJa?.trim() && d.usageJa) cur.usageJa = d.usageJa;
+    if (!cur.noteJa?.trim() && d.noteJa) cur.noteJa = d.noteJa;
+    if (!cur.code?.trim() && d.code) cur.code = d.code;
+    if (!cur.trigger?.trim() && d.trigger) cur.trigger = d.trigger;
+    byId.set(d.id, cur);
+  }
+  return [...byId.values()].sort((a, b) =>
+    String(a.id ?? '').localeCompare(String(b.id ?? ''), 'en'),
+  );
+}
 
 function guessContentType(path: string): string {
   const lower = path.toLowerCase();
@@ -157,6 +302,13 @@ export function AudioPage() {
   const [selected, setSelected] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(null);
+  const [viewingHistory, setViewingHistory] = useState(false);
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const expectedUpdatedAtRef = useRef<string | null>(null);
+  const viewingHistoryRef = useRef(false);
+  expectedUpdatedAtRef.current = expectedUpdatedAt;
+  viewingHistoryRef.current = viewingHistory;
   const [provider, setProvider] = useState<ProviderChoice>('auto');
   const [promptJa, setPromptJa] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -176,21 +328,34 @@ export function AudioPage() {
   promptJaRef.current = promptJa;
   promptRef.current = prompt;
 
+  const applyAudioData = (
+    raw: unknown,
+    meta?: { updatedAt?: string | null; asHistory?: boolean },
+  ) => {
+    const data = raw as AudioDoc;
+    if (data?.cues?.length) {
+      setDoc({
+        version: data.version ?? 1,
+        cues: mergeDefaultCues(data.cues.map((c) => migrateCueCandidates(c))),
+      });
+    } else {
+      setDoc({ version: 1, cues: DEFAULT_CUES });
+    }
+    if (!meta?.asHistory) {
+      setExpectedUpdatedAt(meta?.updatedAt ?? null);
+    }
+    setViewingHistory(Boolean(meta?.asHistory));
+    setSelected(0);
+  };
+
+  const loadLatestAudio = async () => {
+    const r = await api.getCatalog('audio');
+    applyAudioData(r.data, { updatedAt: r.updatedAt, asHistory: false });
+    setHistoryResetToken((n) => n + 1);
+  };
+
   useEffect(() => {
-    api
-      .getCatalog('audio')
-      .then((r) => {
-        const data = r.data as AudioDoc;
-        if (data?.cues?.length) {
-          setDoc({
-            version: data.version ?? 1,
-            cues: data.cues.map((c) => migrateCueCandidates(c)),
-          });
-        } else {
-          setDoc({ version: 1, cues: DEFAULT_CUES });
-        }
-      })
-      .catch((e) => setStatus(String(e.message || e)));
+    loadLatestAudio().catch((e) => setStatus(String(e.message || e)));
   }, []);
 
   const cue = doc.cues[selected];
@@ -282,6 +447,14 @@ export function AudioPage() {
     updater: (prev: AudioDoc) => AudioDoc,
     okMessage: string,
   ): Promise<AudioDoc> => {
+    if (
+      viewingHistoryRef.current &&
+      !confirm(
+        '過去版の内容を新しい最新として保存します。続行しますか？',
+      )
+    ) {
+      throw new Error('保存をキャンセルしました');
+    }
     const sel = selectedRef.current;
     const draft = updater(docRef.current);
     const next: AudioDoc = {
@@ -296,8 +469,18 @@ export function AudioPage() {
     };
     docRef.current = next;
     setDoc(next);
-    const r = await api.saveCatalog('audio', next);
+    const r = await api.saveCatalog('audio', next, {
+      expectedUpdatedAt: isCloudMode() ? expectedUpdatedAtRef.current : null,
+    });
     setIssues(r.issues.filter((i) => i.catalog === 'audio'));
+    setViewingHistory(false);
+    try {
+      const latest = await api.getCatalog('audio');
+      setExpectedUpdatedAt(latest.updatedAt);
+    } catch {
+      setExpectedUpdatedAt(null);
+    }
+    setHistoryResetToken((n) => n + 1);
     setStatus(okMessage);
     return next;
   };
@@ -544,10 +727,23 @@ export function AudioPage() {
 
   return (
     <div className="space-y-4">
-      <header>
+      <header className="space-y-1.5">
+        <div className="flex items-center justify-end">
+          <CatalogHistoryBar
+            catalogId="audio"
+            dirty={viewingHistory}
+            resetToken={historyResetToken}
+            onStatus={setStatus}
+            onLoadLatest={() => loadLatestAudio()}
+            onLoadRevision={(_id, data) => {
+              applyAudioData(data, { asHistory: true });
+            }}
+          />
+        </div>
         <PageDesc>
           キューへ音声を割当。生成・手動UP・有効化は自動でクラウド保存（保存ボタン不要）。ogg
           正規化＋原盤保管。
+          {viewingHistory ? ' ・過去版表示中' : ''}
           {status ? ` ${status}` : ''}
         </PageDesc>
         <input
@@ -574,14 +770,19 @@ export function AudioPage() {
               }`}
             >
               <div className="font-medium">
-                {c.id}
+                {c.noteJa || c.code || c.id}
                 {c.code ? (
                   <span className="ml-1 font-normal text-[var(--muted)]">({c.code})</span>
                 ) : null}
               </div>
-              <div className="text-[10px] text-[var(--muted)]">
+              {c.usageJa ? (
+                <div className="text-[10px] text-[var(--muted)] leading-snug mt-0.5">
+                  {c.usageJa}
+                </div>
+              ) : null}
+              <div className="text-[10px] text-[var(--muted)] mt-0.5">
                 {c.kind} / {c.trigger ?? '—'}{' '}
-                {c.file
+                {c.file || (c.files && c.files.length)
                   ? `· 候補 ${(c.candidates ?? []).length || 1}`
                   : '・未割当'}
               </div>
@@ -702,11 +903,20 @@ export function AudioPage() {
                 loop
               </label>
               <label className="block text-sm">
-                <span className="text-[var(--muted)]">noteJa</span>
+                <span className="text-[var(--muted)]">noteJa（表示名）</span>
                 <input
                   className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)]"
                   value={cue.noteJa ?? ''}
                   onChange={(e) => updateCue({ noteJa: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="text-[var(--muted)]">usageJa（ゲーム内の使用箇所）</span>
+                <textarea
+                  className="mt-1 w-full rounded border border-[var(--line)] px-2 py-1.5 bg-[var(--input-bg)] text-sm min-h-[3.5rem]"
+                  value={cue.usageJa ?? ''}
+                  onChange={(e) => updateCue({ usageJa: e.target.value })}
+                  placeholder="例: 盤面をスワイプして新しいマスに入ったとき"
                 />
               </label>
 

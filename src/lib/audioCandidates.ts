@@ -33,6 +33,8 @@ export type AudioCueWithCandidates = {
   loop?: boolean;
   trigger?: string;
   noteJa?: string;
+  /** ゲーム内の再生箇所説明（管理画面表示用）。 */
+  usageJa?: string;
   promptJa?: string;
   promptEn?: string;
   candidates?: AudioCandidate[];

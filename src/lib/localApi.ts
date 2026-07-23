@@ -35,8 +35,12 @@ export const localApi: AdminApi = {
       catalogs: { id: string; file: string; exists: boolean; count: number }[];
     }>('/api/catalogs'),
 
-  getCatalog: (name) =>
-    req<{ ok: boolean; file: string; data: unknown }>(`/api/catalogs/${name}`),
+  getCatalog: async (name) => {
+    const r = await req<{ ok: boolean; file: string; data: unknown }>(
+      `/api/catalogs/${name}`,
+    );
+    return { ...r, updatedAt: null, updatedBy: null };
+  },
 
   saveCatalog: (name, data) =>
     req<{ ok: boolean; backupPath: string | null; issues: Issue[] }>(
@@ -47,6 +51,14 @@ export const localApi: AdminApi = {
         body: JSON.stringify({ data }),
       },
     ),
+
+  async listCatalogHistory() {
+    return { ok: true, latest: null, revisions: [], available: false };
+  },
+
+  async getCatalogRevision() {
+    throw new Error('カタログ履歴はクラウドモードでのみ利用できます');
+  },
 
   validate: () => req<{ ok: boolean; issues: Issue[] }>('/api/validate'),
 

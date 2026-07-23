@@ -19,7 +19,10 @@ import {
 } from '../lib/catalogOrder';
 import { CATALOG_IDS as ALL_CATALOG_IDS, DEFAULT_HUD } from '../lib/catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
+import { CatalogHistoryBar } from '../components/CatalogHistoryBar';
+import { JsonMergeDiffView } from '../components/JsonMergeDiffView';
 import { PageDesc, MetaChip, UiButton, equipSlotLabelJa } from '../components/ui';
+import { isCloudMode } from '../lib/mode';
 
 const CATALOGS = [
   { id: 'characters', label: 'キャラ' },
@@ -135,33 +138,86 @@ export function CatalogEditor() {
   const [editMode, setEditMode] = useState<EditMode>('form');
   const [jsonText, setJsonText] = useState('[]\n');
   const [jsonParseError, setJsonParseError] = useState('');
+  const [expectedUpdatedAt, setExpectedUpdatedAt] = useState<string | null>(null);
+  const [viewingHistory, setViewingHistory] = useState(false);
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  /** 過去版表示時の比較基準（読込時点の最新 JSON テキスト） */
+  const [diffBaseJson, setDiffBaseJson] = useState<string | null>(null);
   const isHud = catalogId === 'hud';
 
-  const load = async (name: string) => {
-    setStatus('読込中...');
-    const r = await api.getCatalog(name);
+  const jsonTextFromRaw = (name: string, raw: unknown): string => {
     if (name === 'hud') {
-      const doc = normalizeHud(r.data);
+      const doc = normalizeHud(raw);
+      return formatEditorJson('hud', flattenHudRows(doc), doc.appVersion);
+    }
+    const data = orderCatalogData(name, raw) as Row[];
+    const rowsData = Array.isArray(data) ? data : [];
+    return formatEditorJson(name, rowsData, DEFAULT_HUD.appVersion);
+  };
+
+  const applyLoadedData = (name: string, raw: unknown, meta?: {
+    updatedAt?: string | null;
+    asHistory?: boolean;
+  }) => {
+    // 過去版読込時は競合検知用に「現在の最新 updatedAt」を維持する
+    if (!meta?.asHistory) {
+      setExpectedUpdatedAt(meta?.updatedAt ?? null);
+      setDiffBaseJson(null);
+    }
+    setViewingHistory(Boolean(meta?.asHistory));
+    if (name === 'hud') {
+      const doc = normalizeHud(raw);
       const flat = flattenHudRows(doc);
       setAppVersion(doc.appVersion);
       setRows(flat);
       setSelectedIdx(0);
-      setDirty(false);
+      setDirty(Boolean(meta?.asHistory));
       setJsonText(formatEditorJson('hud', flat, doc.appVersion));
       setJsonParseError('');
       setIssues([]);
-      setStatus(`hud: 見た目 ${doc.assetSlots.length} 枠`);
+      setStatus(
+        meta?.asHistory
+          ? `hud: 過去版を表示中（${doc.assetSlots.length} 枠）`
+          : `hud: 見た目 ${doc.assetSlots.length} 枠`,
+      );
       return;
     }
-    const data = orderCatalogData(name, r.data) as Row[];
+    const data = orderCatalogData(name, raw) as Row[];
     const rowsData = Array.isArray(data) ? data : [];
     setRows(rowsData);
     setSelectedIdx(0);
-    setDirty(false);
+    setDirty(Boolean(meta?.asHistory));
     setJsonText(formatEditorJson(name, rowsData, DEFAULT_HUD.appVersion));
     setJsonParseError('');
     setIssues([]);
-    setStatus(`${name}: ${rowsData.length} 件`);
+    setStatus(
+      meta?.asHistory
+        ? `${name}: 過去版を表示中（${rowsData.length} 件）`
+        : `${name}: ${rowsData.length} 件`,
+    );
+  };
+
+  const load = async (name: string) => {
+    setStatus('読込中...');
+    const r = await api.getCatalog(name);
+    applyLoadedData(name, r.data, {
+      updatedAt: r.updatedAt,
+      asHistory: false,
+    });
+    setHistoryResetToken((n) => n + 1);
+  };
+
+  const loadHistoryRevision = async (_revisionId: string, data: unknown) => {
+    setStatus('過去版と最新を比較用に読込中...');
+    try {
+      const latest = await api.getCatalog(catalogId);
+      setDiffBaseJson(jsonTextFromRaw(catalogId, latest.data));
+      // 競合検知用は最新の updatedAt を維持
+      setExpectedUpdatedAt(latest.updatedAt);
+    } catch {
+      setDiffBaseJson(null);
+    }
+    applyLoadedData(catalogId, data, { asHistory: true });
   };
 
   useEffect(() => {
@@ -496,6 +552,14 @@ export function CatalogEditor() {
 
   const save = async () => {
     try {
+      if (
+        viewingHistory &&
+        !confirm(
+          '過去版の内容を新しい最新として保存します。他カタログとの参照ずれに注意してください。続行しますか？',
+        )
+      ) {
+        return;
+      }
       setStatus('保存中...');
       let data: Row[] | HudDoc = isHud ? toHudPayload(appVersion, rows) : rows;
       if (editMode === 'json') {
@@ -509,22 +573,34 @@ export function CatalogEditor() {
         setRows(parsed.data);
         data = isHud ? toHudPayload(appVersion, parsed.data) : parsed.data;
       }
-      const r = await api.saveCatalog(catalogId, data);
+      const r = await api.saveCatalog(catalogId, data, {
+        expectedUpdatedAt: isCloudMode() ? expectedUpdatedAt : null,
+      });
       const related = r.issues.filter(
         (i) => i.catalog === catalogId || !i.catalog,
       );
       setIssues(related);
       setDirty(false);
+      setViewingHistory(false);
+      setDiffBaseJson(null);
       const savedRows = isHud
         ? flattenHudRows(data as HudDoc)
         : (data as Row[]);
       if (isHud) setRows(savedRows);
       setJsonText(formatEditorJson(catalogId, savedRows, appVersion));
+      // 保存後の updatedAt を取り直す（競合検知用）
+      try {
+        const latest = await api.getCatalog(catalogId);
+        setExpectedUpdatedAt(latest.updatedAt);
+      } catch {
+        setExpectedUpdatedAt(null);
+      }
+      setHistoryResetToken((n) => n + 1);
       const errors = related.filter((i) => i.level === 'error').length;
       const warns = related.filter((i) => i.level === 'warning').length;
       setStatus(
         (r.backupPath
-          ? `保存しました（バックアップ: ${r.backupPath}）`
+          ? `保存しました（履歴: ${r.backupPath}）`
           : '保存しました') + ` · 検証 エラー ${errors} / 警告 ${warns}`,
       );
     } catch (e) {
@@ -561,13 +637,17 @@ export function CatalogEditor() {
 
   return (
     <div className="h-[calc(100svh-3rem)] flex flex-col gap-2 min-h-0 text-xs">
-      <header className="flex items-end justify-between gap-2 flex-wrap">
-        <PageDesc>
-          {editMode === 'form' ? 'フォーム編集' : 'JSON 直接編集'}。{status}
-          {dirty ? ' ・未保存の変更あり' : ''}
-        </PageDesc>
-        <div className="flex gap-1.5 flex-wrap items-center">
-          <div className="flex h-8 rounded border border-[var(--line)] overflow-hidden">
+      <header className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+            <CatalogHistoryBar
+              catalogId={catalogId}
+              dirty={dirty}
+              resetToken={historyResetToken}
+              onStatus={setStatus}
+              onLoadLatest={() => load(catalogId)}
+              onLoadRevision={(id, data) => loadHistoryRevision(id, data)}
+            />
+          <div className="flex h-8 rounded border border-[var(--line)] overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => switchEditMode('form')}
@@ -602,6 +682,11 @@ export function CatalogEditor() {
             保存
           </UiButton>
         </div>
+        <PageDesc>
+          {editMode === 'form' ? 'フォーム編集' : 'JSON 直接編集'}。{status}
+          {dirty ? ' ・未保存の変更あり' : ''}
+          {viewingHistory ? ' ・過去版' : ''}
+        </PageDesc>
       </header>
 
       <div
@@ -616,7 +701,12 @@ export function CatalogEditor() {
         {editMode === 'json' ? (
           <section className="rounded-lg border border-[var(--line)] bg-[var(--panel)] min-h-0 flex flex-col overflow-hidden">
             <div className="px-3 py-2 border-b border-[var(--line)] flex items-center justify-between gap-2 shrink-0">
-              <span className="text-sm font-medium font-mono">{catalogId}.json</span>
+              <span className="text-sm font-medium font-mono">
+                {catalogId}.json
+                {viewingHistory && diffBaseJson
+                  ? ' · 過去版 ↔ 最新'
+                  : ''}
+              </span>
               <span
                 className={`text-xs ${
                   jsonParseError ? 'text-[var(--danger)]' : 'text-[var(--accent)]'
@@ -625,7 +715,17 @@ export function CatalogEditor() {
                 {jsonParseError || 'JSON 構文 OK'}
               </span>
             </div>
-            <JsonCodeEditor value={jsonText} onChange={onJsonChange} />
+            {viewingHistory && diffBaseJson ? (
+              <JsonMergeDiffView
+                leftValue={jsonText}
+                leftLabel="過去版（編集中・未保存）"
+                rightValue={diffBaseJson}
+                rightLabel="最新（クラウド）"
+                onLeftChange={onJsonChange}
+              />
+            ) : (
+              <JsonCodeEditor value={jsonText} onChange={onJsonChange} />
+            )}
             {issues.length > 0 && (
               <div className="border-t border-[var(--line)] p-3 shrink-0 max-h-40 overflow-auto">
                 <h4 className="text-sm font-medium mb-1">コンテンツ検証</h4>

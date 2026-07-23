@@ -113,6 +113,62 @@ const CUE_DEFAULTS: Record<string, CuePromptEn> = {
       'Soft lower beep; 0.2–0.6s; softer than confirm, not negative.',
     ].join(' '),
   },
+  se_path_tick: {
+    durationSeconds: 0.35,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: path tick when finger enters a new tile while swiping.',
+      'Soft electronic tick / tiny UI click; 0.12–0.35s; not fatiguing when rapid.',
+    ].join(' '),
+  },
+  se_boss_appear: {
+    durationSeconds: 1.4,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: boss appear announce.',
+      'Alerting whoosh/siren sting + low impact; 0.8–1.6s; playful sci-fi, not horror.',
+    ].join(' '),
+  },
+  se_levelup: {
+    durationSeconds: 1.2,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: level-up screen open.',
+      'Bright ascending chime / short arpeggio; 0.7–1.4s; rewarding.',
+    ].join(' '),
+  },
+  se_skill_select: {
+    durationSeconds: 1.0,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: skill select screen open (energy full).',
+      'Charge-complete beep + light sparkle; 0.5–1.2s.',
+    ].join(' '),
+  },
+  se_shop_open: {
+    durationSeconds: 1.0,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: development shop screen open.',
+      'Soft mechanical boot / light register-like electronic chime; 0.5–1.1s.',
+    ].join(' '),
+  },
+  se_enemy_kill: {
+    durationSeconds: 0.9,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: enemy defeated / destroyed.',
+      'Short electronic collapse + sparkly particles; 0.4–1.0s; more satisfying than a normal hit.',
+    ].join(' '),
+  },
+  se_skill_use: {
+    durationSeconds: 1.0,
+    en: [
+      ROBODUN_SFX_STYLE,
+      'SFX: skill activated.',
+      'Power-release whoosh / charge dump; 0.5–1.2s; clear but not oversized.',
+    ].join(' '),
+  },
 };
 
 function kindFallbackEn(input: {

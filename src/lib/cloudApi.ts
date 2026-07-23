@@ -36,7 +36,11 @@ import {
   rewritePathCategory,
 } from './assetCategory';
 import { trimImageBlob } from './browserTrim';
-import type { AdminApi, AssetEntry } from './apiTypes';
+import type { AdminApi, AssetEntry, CatalogRevisionMeta } from './apiTypes';
+import {
+  CATALOG_HISTORY_LIMIT,
+  firestoreTimeToIso,
+} from './catalogHistory';
 import { orderCatalogData, stringifyCatalog } from './catalogOrder';
 import { catalogEntryCount, DEFAULT_HUD } from './catalogRegistry';
 import { CATALOG_IDS, validateCatalogBundle } from './validateContent';
@@ -232,6 +236,20 @@ async function resolveStoragePath(
   return `${prefix}/${relativePath.replace(/^\/+/, '')}`;
 }
 
+async function pruneCatalogHistory(
+  db: ReturnType<typeof getDb>,
+  catalogId: string,
+) {
+  const histQ = query(
+    collection(db, 'catalogHistory', catalogId, 'revisions'),
+    orderBy('savedAt', 'desc'),
+    limit(CATALOG_HISTORY_LIMIT + 20),
+  );
+  const histSnap = await getDocs(histQ);
+  const stale = histSnap.docs.slice(CATALOG_HISTORY_LIMIT);
+  await Promise.all(stale.map((d) => deleteDoc(d.ref)));
+}
+
 function invalidateListCache(prefix?: string) {
   if (prefix) listCache.delete(prefix);
   else listCache.clear();
@@ -304,21 +322,85 @@ export const cloudApi: AdminApi = {
         ok: true,
         file: `${name}.json`,
         data,
+        updatedAt: null,
+        updatedBy: null,
       };
     }
+    const raw = snap.data();
     return {
       ok: true,
       file: `${name}.json`,
-      data: orderCatalogData(name, snap.data().data),
+      data: orderCatalogData(name, raw.data),
+      updatedAt: firestoreTimeToIso(raw.updatedAt),
+      updatedBy: typeof raw.updatedBy === 'string' ? raw.updatedBy : null,
     };
   },
 
-  async saveCatalog(name, data) {
+  async listCatalogHistory(name) {
+    requireUser();
+    const db = getDb();
+    const latestSnap = await getDoc(doc(db, 'catalogs', name));
+    const latest = latestSnap.exists()
+      ? {
+          updatedAt: firestoreTimeToIso(latestSnap.data().updatedAt),
+          updatedBy:
+            typeof latestSnap.data().updatedBy === 'string'
+              ? latestSnap.data().updatedBy
+              : null,
+        }
+      : null;
+
+    const histQ = query(
+      collection(db, 'catalogHistory', name, 'revisions'),
+      orderBy('savedAt', 'desc'),
+      limit(CATALOG_HISTORY_LIMIT),
+    );
+    const histSnap = await getDocs(histQ);
+    const revisions: CatalogRevisionMeta[] = histSnap.docs.map((d) => {
+      const x = d.data();
+      return {
+        id: d.id,
+        savedAt: firestoreTimeToIso(x.savedAt),
+        savedBy: typeof x.savedBy === 'string' ? x.savedBy : 'unknown',
+        sourceUpdatedAt: firestoreTimeToIso(x.sourceUpdatedAt),
+        sourceUpdatedBy:
+          typeof x.sourceUpdatedBy === 'string' ? x.sourceUpdatedBy : null,
+      };
+    });
+    return { ok: true, latest, revisions, available: true };
+  },
+
+  async getCatalogRevision(name, revisionId) {
+    requireUser();
+    const snap = await getDoc(
+      doc(getDb(), 'catalogHistory', name, 'revisions', revisionId),
+    );
+    if (!snap.exists()) {
+      throw new Error(`履歴が見つかりません: ${name}/${revisionId}`);
+    }
+    const x = snap.data();
+    const meta: CatalogRevisionMeta = {
+      id: snap.id,
+      savedAt: firestoreTimeToIso(x.savedAt),
+      savedBy: typeof x.savedBy === 'string' ? x.savedBy : 'unknown',
+      sourceUpdatedAt: firestoreTimeToIso(x.sourceUpdatedAt),
+      sourceUpdatedBy:
+        typeof x.sourceUpdatedBy === 'string' ? x.sourceUpdatedBy : null,
+    };
+    return {
+      ok: true,
+      data: orderCatalogData(name, x.data),
+      meta,
+    };
+  },
+
+  async saveCatalog(name, data, opts) {
     const user = requireUser();
     // Firestore rejects `undefined` anywhere in the document.
     const ordered = stripUndefinedDeep(orderCatalogData(name, data));
     const db = getDb();
     const catalogRef = doc(db, 'catalogs', name);
+    const actor = user.email ?? user.uid;
 
     // 上書き前の内容を履歴へ（クラウド側の誤消対策）
     let backupPath: string | null = null;
@@ -326,28 +408,42 @@ export const cloudApi: AdminApi = {
       const prev = await getDoc(catalogRef);
       if (prev.exists()) {
         const prevData = prev.data();
+        const currentUpdatedAt = firestoreTimeToIso(prevData.updatedAt);
+        if (
+          opts?.expectedUpdatedAt != null &&
+          opts.expectedUpdatedAt !== '' &&
+          currentUpdatedAt &&
+          currentUpdatedAt !== opts.expectedUpdatedAt
+        ) {
+          throw new Error(
+            '他の保存が先に行われています。最新を読み直してから再度保存してください。',
+          );
+        }
+
         const now = Timestamp.now();
         const revRef = await addDoc(collection(db, 'catalogHistory', name, 'revisions'), {
           data: prevData.data ?? null,
           savedAt: now,
           savedAtServer: serverTimestamp(),
-          savedBy: user.email ?? user.uid,
+          savedBy: actor,
           sourceUpdatedAt: prevData.updatedAt ?? null,
           sourceUpdatedBy: prevData.updatedBy ?? null,
         });
         backupPath = `catalogHistory/${name}/revisions/${revRef.id}`;
 
-        // 直近 30 件を超えた古い履歴を削除
-        const histQ = query(
-          collection(db, 'catalogHistory', name, 'revisions'),
-          orderBy('savedAt', 'desc'),
-          limit(40),
+        await pruneCatalogHistory(db, name);
+      } else if (opts?.expectedUpdatedAt) {
+        throw new Error(
+          '他の保存が先に行われています。最新を読み直してから再度保存してください。',
         );
-        const histSnap = await getDocs(histQ);
-        const stale = histSnap.docs.slice(30);
-        await Promise.all(stale.map((d) => deleteDoc(d.ref)));
       }
     } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes('他の保存が先に行われています')
+      ) {
+        throw err;
+      }
       console.warn('catalog history backup failed', err);
     }
 
@@ -356,7 +452,7 @@ export const cloudApi: AdminApi = {
       {
         data: ordered,
         updatedAt: serverTimestamp(),
-        updatedBy: user.email ?? user.uid,
+        updatedBy: actor,
       },
       { merge: true },
     );
