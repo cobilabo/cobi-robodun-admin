@@ -100,10 +100,30 @@ export function UiButton({
   );
 }
 
-/** リスト右詰のメタラベル（専用キャラ・部位など） */
-export function MetaChip({ children }: { children: ReactNode }) {
+/** リスト右詰のメタラベル（専用キャラ・部位など）。onClick 時はトグル絞り込み用。 */
+export function MetaChip({
+  children,
+  active = false,
+  onClick,
+  title,
+}: {
+  children: ReactNode;
+  active?: boolean;
+  onClick?: (e: React.MouseEvent) => void;
+  title?: string;
+}) {
+  const clickable = Boolean(onClick);
   return (
-    <span className="ml-auto shrink-0 rounded bg-[var(--hover)] px-1.5 py-0.5 text-[9px] text-[var(--muted)] leading-none">
+    <span
+      role={clickable ? 'button' : undefined}
+      title={title}
+      onClick={onClick}
+      className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] leading-none select-none ${
+        active
+          ? 'bg-[var(--accent)] text-[var(--bg)] font-medium'
+          : 'bg-[var(--hover)] text-[var(--muted)]'
+      } ${clickable ? 'cursor-pointer hover:brightness-110' : ''}`}
+    >
       {children}
     </span>
   );

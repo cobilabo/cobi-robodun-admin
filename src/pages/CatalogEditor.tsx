@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, type Issue } from '../lib/api';
 import { rowLabel } from '../lib/fieldInfer';
@@ -143,7 +143,57 @@ export function CatalogEditor() {
   const [historyResetToken, setHistoryResetToken] = useState(0);
   /** 過去版表示時の比較基準（読込時点の最新 JSON テキスト） */
   const [diffBaseJson, setDiffBaseJson] = useState<string | null>(null);
+  /** 装備: slot / スキル: exclusiveTo キー（''=共通）。再クリックで null */
+  const [listFilter, setListFilter] = useState<string | null>(null);
   const isHud = catalogId === 'hud';
+
+  const skillExclusiveKey = (row: Row): string => {
+    const ex = row.exclusiveTo;
+    if (ex == null || ex === '') return '';
+    return String(ex);
+  };
+
+  const skillExclusiveLabel = (row: Row): string => {
+    const key = skillExclusiveKey(row);
+    if (!key) return '共通';
+    return idOptions.characters?.find((o) => o.id === key)?.name || key;
+  };
+
+  /** リスト表示用（装備は出現ターン昇順＋部位フィルタ、スキルは専用キャラフィルタ） */
+  const listItems = useMemo(() => {
+    let items = rows.map((row, index) => ({ row, index }));
+
+    if (catalogId === 'equipment') {
+      items.sort((a, b) => {
+        const sa = Number(a.row.spawnTurn ?? 0);
+        const sb = Number(b.row.spawnTurn ?? 0);
+        if (sa !== sb) return sa - sb;
+        const slotCmp = String(a.row.slot ?? '').localeCompare(String(b.row.slot ?? ''));
+        if (slotCmp !== 0) return slotCmp;
+        return String(a.row.id ?? '').localeCompare(String(b.row.id ?? ''));
+      });
+      if (listFilter != null) {
+        items = items.filter((x) => String(x.row.slot ?? '') === listFilter);
+      }
+    } else if (catalogId === 'skills') {
+      items.sort((a, b) => {
+        const ka = skillExclusiveKey(a.row);
+        const kb = skillExclusiveKey(b.row);
+        if (ka !== kb) {
+          // 共通を先に、その後 ID 順
+          if (ka === '') return -1;
+          if (kb === '') return 1;
+          return ka.localeCompare(kb);
+        }
+        return String(a.row.id ?? '').localeCompare(String(b.row.id ?? ''));
+      });
+      if (listFilter != null) {
+        items = items.filter((x) => skillExclusiveKey(x.row) === listFilter);
+      }
+    }
+
+    return items;
+  }, [rows, catalogId, listFilter, idOptions.characters]);
 
   const jsonTextFromRaw = (name: string, raw: unknown): string => {
     if (name === 'hud') {
@@ -165,6 +215,7 @@ export function CatalogEditor() {
       setDiffBaseJson(null);
     }
     setViewingHistory(Boolean(meta?.asHistory));
+    if (!meta?.asHistory) setListFilter(null);
     if (name === 'hud') {
       const doc = normalizeHud(raw);
       const flat = flattenHudRows(doc);
@@ -236,7 +287,12 @@ export function CatalogEditor() {
     if (dirty && !confirm('未保存の変更があります。破棄してカタログを切り替えますか？')) {
       return;
     }
+    setListFilter(null);
     setCatalogId(id);
+  };
+
+  const toggleListFilter = (key: string) => {
+    setListFilter((prev) => (prev === key ? null : key));
   };
 
   useEffect(() => {
@@ -750,27 +806,44 @@ export function CatalogEditor() {
         ) : (
           <>
         <aside className="rounded-lg border border-[var(--line)] bg-[var(--panel)] overflow-auto min-w-0">
-          {rows.map((row, i) => {
+          {listFilter != null && (catalogId === 'equipment' || catalogId === 'skills') && (
+            <div className="px-2.5 py-1.5 text-[10px] text-[var(--muted)] border-b border-[var(--line)] flex items-center justify-between gap-2">
+              <span>
+                絞り込み中:{' '}
+                <span className="text-[var(--accent)]">
+                  {catalogId === 'equipment'
+                    ? equipSlotLabelJa(listFilter)
+                    : listFilter === ''
+                      ? '共通'
+                      : idOptions.characters?.find((o) => o.id === listFilter)?.name ||
+                        listFilter}
+                </span>
+                （{listItems.length}件）
+              </span>
+              <button
+                type="button"
+                className="text-[var(--accent)] hover:underline"
+                onClick={() => setListFilter(null)}
+              >
+                解除
+              </button>
+            </div>
+          )}
+          {listItems.map(({ row, index }) => {
             const imgPath = rowImagePath(row);
-            let meta: string | null = null;
-            if (catalogId === 'skills') {
-              const ex = row.exclusiveTo;
-              if (ex == null || ex === '') meta = '共通';
-              else {
-                const id = String(ex);
-                const hit = idOptions.characters?.find((o) => o.id === id);
-                meta = hit?.name || id;
-              }
-            } else if (catalogId === 'equipment') {
-              meta = equipSlotLabelJa(row.slot);
-            }
+            const spawnTurn =
+              catalogId === 'equipment' ? Number(row.spawnTurn ?? 0) : null;
+            const equipSlot =
+              catalogId === 'equipment' ? String(row.slot ?? '') : null;
+            const skillKey =
+              catalogId === 'skills' ? skillExclusiveKey(row) : null;
             return (
               <button
-                key={`${row.id ?? row.slot}-${i}`}
+                key={`${row.id ?? row.slot ?? row.key}-${index}`}
                 type="button"
-                onClick={() => setSelectedIdx(i)}
+                onClick={() => setSelectedIdx(index)}
                 className={`w-full text-left px-2.5 py-1.5 text-[11px] border-b border-[var(--line)] flex items-center gap-2 ${
-                  selectedIdx === i
+                  selectedIdx === index
                     ? 'bg-[var(--accent-soft)]'
                     : 'hover:bg-[var(--hover)]'
                 }`}
@@ -782,15 +855,48 @@ export function CatalogEditor() {
                     className="!mb-0 size-6 shrink-0"
                   />
                 ) : null}
-                <span className="min-w-0 truncate whitespace-nowrap leading-snug">
+                <span className="min-w-0 truncate whitespace-nowrap leading-snug flex-1">
                   {isHud ? hudSlotLabel(row) : rowLabel(row)}
                 </span>
-                {meta ? <MetaChip>{meta}</MetaChip> : null}
+                {spawnTurn != null && (
+                  <span
+                    className="shrink-0 font-mono text-[9px] text-[var(--muted)] tabular-nums"
+                    title="出現ターン"
+                  >
+                    T{spawnTurn}
+                  </span>
+                )}
+                {equipSlot != null && (
+                  <MetaChip
+                    active={listFilter === equipSlot}
+                    title="クリックでこの部位のみ表示（再クリックで解除）"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleListFilter(equipSlot);
+                    }}
+                  >
+                    {equipSlotLabelJa(equipSlot)}
+                  </MetaChip>
+                )}
+                {skillKey != null && (
+                  <MetaChip
+                    active={listFilter === skillKey}
+                    title="クリックでこの専用のみ表示（再クリックで解除）"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleListFilter(skillKey);
+                    }}
+                  >
+                    {skillExclusiveLabel(row)}
+                  </MetaChip>
+                )}
               </button>
             );
           })}
-          {rows.length === 0 && (
-            <p className="p-2.5 text-[11px] text-[var(--muted)]">行がありません</p>
+          {listItems.length === 0 && (
+            <p className="p-2.5 text-[11px] text-[var(--muted)]">
+              {rows.length === 0 ? '行がありません' : '該当する行がありません'}
+            </p>
           )}
         </aside>
 
