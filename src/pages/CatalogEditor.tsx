@@ -22,6 +22,7 @@ import { CATALOG_IDS, validateCatalogBundle } from '../lib/validateContent';
 import { CatalogHistoryBar } from '../components/CatalogHistoryBar';
 import { JsonMergeDiffView } from '../components/JsonMergeDiffView';
 import { PageDesc, MetaChip, UiButton, equipSlotLabelJa } from '../components/ui';
+import { equipUniqueShortJa } from '../lib/catalogRegistry';
 import { isCloudMode } from '../lib/mode';
 
 const CATALOGS = [
@@ -878,6 +879,17 @@ export function CatalogEditor() {
                     {equipSlotLabelJa(equipSlot)}
                   </MetaChip>
                 )}
+                {catalogId === 'equipment' &&
+                  (() => {
+                    const uniq = equipUniqueShortJa(row.uniqueKind, row.uniqueValue);
+                    return uniq ? (
+                      <MetaChip
+                        title={`ユニーク: ${String(row.uniqueKind ?? '')} ${String(row.uniqueValue ?? '')}`}
+                      >
+                        {uniq}
+                      </MetaChip>
+                    ) : null;
+                  })()}
                 {skillKey != null && (
                   <MetaChip
                     active={listFilter === skillKey}

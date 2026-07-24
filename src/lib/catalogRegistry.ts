@@ -153,13 +153,69 @@ export const EQUIP_SLOTS = ['Weapon', 'Armor', 'Core'] as const;
 /** 装備ユニーク（ゲーム EquipUniqueKinds と同期） */
 export const EQUIP_UNIQUE_KINDS = [
   { value: '', label: 'なし' },
-  { value: 'crit', label: 'クリティカル（%でダメ2倍）' },
-  { value: 'cleave', label: '全体攻撃（他敵に与ダメの%）' },
-  { value: 'reflect', label: '攻撃反射（%）' },
-  { value: 'armor_regen', label: '自動修復（毎ターン バリアMaxの%）' },
-  { value: 'hp_regen', label: '持続回復（毎ターン HPMaxの%）' },
-  { value: 'food_surge', label: '補給連動（食料1マスで次戦闘 ATK/DEX+）' },
+  { value: 'crit', label: 'クリティカル（ユニーク値=%、ダメ2倍）' },
+  { value: 'cleave', label: '全体攻撃（ユニーク値=他敵への与ダメ%）' },
+  {
+    value: 'pierce',
+    label: '貫通（ユニーク値=+N体。順序ダメで最初の1+N体までプール減衰なし）',
+  },
+  { value: 'reflect', label: '攻撃反射（ユニーク値=%）' },
+  { value: 'armor_regen', label: '自動修復（ユニーク値=毎ターン バリアMaxの%）' },
+  { value: 'hp_regen', label: '持続回復（ユニーク値=毎ターン HPMaxの%）' },
+  {
+    value: 'food_surge',
+    label: '補給連動（ユニーク値=食料1マスで次戦闘 ATK/DEX+）',
+  },
 ] as const;
+
+/** 装備一覧チップ用の短いユニーク名 */
+export function equipUniqueShortJa(kind: unknown, value?: unknown): string {
+  const k = String(kind ?? '').trim().toLowerCase();
+  if (!k || k === 'none' || k === '-') return '';
+  const n = Number(value);
+  const hasN = Number.isFinite(n) && n !== 0;
+  switch (k) {
+    case 'crit':
+      return hasN ? `クリ${n}%` : 'クリ';
+    case 'cleave':
+      return hasN ? `全体${n}%` : '全体';
+    case 'pierce':
+      return hasN ? `貫通+${n}` : '貫通';
+    case 'reflect':
+      return hasN ? `反射${n}%` : '反射';
+    case 'armor_regen':
+      return hasN ? `防回${n}%` : '防回';
+    case 'hp_regen':
+      return hasN ? `H回${n}%` : 'H回';
+    case 'food_surge':
+      return hasN ? `補給+${n}` : '補給';
+    default:
+      return hasN ? `${k}:${n}` : k;
+  }
+}
+
+/** uniqueValue 入力欄の補足（uniqueKind 依存） */
+export function uniqueValueHintJa(kind: unknown): string {
+  const k = String(kind ?? '').trim().toLowerCase();
+  switch (k) {
+    case 'crit':
+      return 'クリ発生率（%）。装備Lvで乗算';
+    case 'cleave':
+      return 'パス外敵への与ダメ割合（%）。装備Lvで乗算';
+    case 'pierce':
+      return '追加貫通体数（+N）。基本1＋この値。装備Lvで乗算';
+    case 'reflect':
+      return '被ダメ反射率（%）。装備Lvで乗算';
+    case 'armor_regen':
+      return '毎ターン回復するバリアMax割合（%）。装備Lvで乗算';
+    case 'hp_regen':
+      return '毎ターン回復するHPMax割合（%）。装備Lvで乗算';
+    case 'food_surge':
+      return '食料1マスあたりの次戦闘ATK/DEX加算。装備Lvで乗算';
+    default:
+      return 'ユニーク強度（%または加算）。装備Lvで乗算';
+  }
+}
 
 /** 行動 logic（ゲーム BehaviorInterpreter と同期） */
 export const BEHAVIOR_LOGICS = [

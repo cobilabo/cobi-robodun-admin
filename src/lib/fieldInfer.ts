@@ -207,9 +207,9 @@ export function fieldNote(key: string, catalogId?: string): string | null {
     case 'potionHealBonus':
       return '補正';
     case 'uniqueKind':
-      return 'crit / cleave / reflect / armor_regen / hp_regen / food_surge';
+      return 'crit / cleave / pierce / reflect / armor_regen / hp_regen / food_surge';
     case 'uniqueValue':
-      return '装備Lvで乗算（%または加算）';
+      return '種別による（pierce=+体数、他は%など）。装備Lvで乗算';
     case 'type':
       return catalogId === 'effects'
         ? 'HealPercent / DamageAllAtk など'

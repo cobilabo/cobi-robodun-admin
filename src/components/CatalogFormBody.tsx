@@ -12,7 +12,13 @@ import {
   keysForRow,
   type FormBlock,
 } from '../lib/catalogOrder';
-import { BEHAVIOR_LOGICS, EFFECT_TYPES, EQUIP_SLOTS, EQUIP_UNIQUE_KINDS } from '../lib/catalogRegistry';
+import {
+  BEHAVIOR_LOGICS,
+  EFFECT_TYPES,
+  EQUIP_SLOTS,
+  EQUIP_UNIQUE_KINDS,
+  uniqueValueHintJa,
+} from '../lib/catalogRegistry';
 import { UiButton, UiInput, UiSelect, UiTextarea } from './ui';
 
 type Row = Record<string, unknown>;
@@ -319,9 +325,20 @@ export function CatalogFormBody({
     }
 
     if (kind === 'number') {
+      const uniqueHint =
+        key === 'uniqueValue' && catalogId === 'equipment'
+          ? uniqueValueHintJa(selected.uniqueKind)
+          : null;
       return (
         <label key={key} className="block min-w-0">
-          {caption}
+          {uniqueHint ? (
+            <span className="text-[var(--muted)] text-[11px]">
+              {fieldCaption(key, catalogId)}
+              <span className="ml-1.5 text-[9px] opacity-80">{uniqueHint}</span>
+            </span>
+          ) : (
+            caption
+          )}
           <UiInput
             type="number"
             className={fieldCls}

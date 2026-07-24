@@ -100,6 +100,14 @@ const DEFAULT_CUES: Cue[] = [
     usageJa: '敵フェーズでプレイヤーがダメージを受けたとき',
   },
   {
+    id: 'aud_18',
+    code: 'se_player_block',
+    kind: 'se',
+    trigger: 'PlayerBlock',
+    noteJa: '無効／防御',
+    usageJa: '敵フェーズでダメージが 0 のとき（完全防御・ミスなど）',
+  },
+  {
     id: 'aud_09',
     code: 'ui_ok',
     kind: 'ui',
